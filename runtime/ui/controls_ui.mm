@@ -84,7 +84,10 @@ static void action_cell(int dev, int id, int fam, int cap_dev, int cap_slot, int
     }
     ImGui::PopStyleColor(pushed);
     if (ImGui::BeginPopupContextItem()) {
-        if (ImGui::MenuItem(tr("Use default"), NULL, false, host != ACT_FOLLOW)) { act_set(dev, id, ACT_FOLLOW); settings_save(); }
+        if (ImGui::MenuItem(tr("Use default"), NULL, false, !bind_is_default_slot(dev, slot))) {
+            bind_reset_action_slot(dev, id);
+            settings_save();
+        }
         if (ImGui::MenuItem(tr("Unbind"), NULL, false, host != ACT_NONE)) { act_set(dev, id, ACT_NONE); settings_save(); }
         ImGui::EndPopup();
     }

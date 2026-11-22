@@ -94,7 +94,28 @@ void watch_arm(void) { abort(); }
 
 static void update(void) { input_mouse_update((SDL_Window *)(uintptr_t)1); }
 int main(void) {
-    unsetenv("SAVAGEWIND_INPUT"); unsetenv("SAVAGEWIND_HOST_INPUT");
+    unsetenv("SAVAGEWIND_INPUT"); unsetenv("SAVAGEWIND_HOST_INPUT"); unsetenv("SAVAGEWIND_PAD_TYPE");
+    // Cold headless startup (no pad connected, no SAVAGEWIND_PAD_TYPE):
+    // auto_swap_ab = true with saved Xbox bindings -> toggling auto_swap_ab off headless must restore Nintendo
+    {
+        const int south = SDL_GAMEPAD_BUTTON_SOUTH, east = SDL_GAMEPAD_BUTTON_EAST;
+        pad = NULL;
+        pad_family = 0;
+        bind_reset(BIND_DEV_PAD);
+        g_settings.auto_swap_ab = true;
+        bind_settings_load("act_schema", "2");
+        bind_settings_load("bind_pad_a", "south");
+        bind_settings_load("bind_pad_b", "east");
+        bind_settings_load("act_pad_0", "south");
+        bind_settings_load("act_pad_14", "east");
+        input_open_startup_pad();
+        assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east && g_act_pad[14] == east);
+        g_settings.auto_swap_ab = false;
+        input_sync_pad_layout();
+        assert(g_bind_pad[BIND_A] == east && g_bind_pad[BIND_B] == south);
+        assert(g_act_pad[0] == east && g_act_pad[14] == south);
+        bind_reset(BIND_DEV_PAD);
+    }
     assert(g_bind_key[BIND_RIGHT] == SDL_SCANCODE_1);
     assert(g_bind_key[BIND_LEFT] == SDL_SCANCODE_2);
     assert(g_bind_key[BIND_UP] == SDL_SCANCODE_3);
@@ -300,6 +321,73 @@ int main(void) {
     // Connecting a Nintendo controller swaps back to Nintendo layout cleanly
     input_sync_pad_layout();
     assert(g_bind_pad[BIND_A] == east && g_bind_pad[BIND_B] == south && g_act_pad[14] == south);
+
+    // Cold headless startup with auto_swap_ab = true, then toggled false before waking Xbox pad
+    sync_inited = false;
+    prev_auto_swap = false;
+    pad = NULL;
+    pad_family = 0;
+    bind_reset(BIND_DEV_PAD);
+    g_settings.auto_swap_ab = true;
+    bind_settings_load("act_schema", "2");
+    bind_settings_load("bind_pad_a", "south");
+    bind_settings_load("bind_pad_b", "east");
+    bind_settings_load("act_pad_0", "south");
+    bind_settings_load("act_pad_14", "east");
+    input_open_startup_pad();
+    assert(sync_inited && prev_auto_swap);
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east && g_act_pad[14] == east);
+    g_settings.auto_swap_ab = false;
+    input_sync_pad_layout();
+    assert(!prev_auto_swap);
+    assert(g_bind_pad[BIND_A] == east && g_bind_pad[BIND_B] == south);
+    assert(g_act_pad[0] == east && g_act_pad[14] == south);
+    // Repeated headless startup (e.g. reboot) keeps prev_auto_swap and bindings untouched; later Xbox connect stays Nintendo
+    input_open_startup_pad();
+    assert(sync_inited && !prev_auto_swap);
+    pad_family = 1;
+    input_sync_pad_layout();
+    assert(g_bind_pad[BIND_A] == east && g_bind_pad[BIND_B] == south && g_act_pad[14] == south);
+
+    // Cold headless startup with auto_swap_ab = false preserves manual Xbox bindings across sync & pad connect
+    sync_inited = false;
+    prev_auto_swap = false;
+    pad = NULL;
+    pad_family = 0;
+    bind_reset(BIND_DEV_PAD);
+    g_settings.auto_swap_ab = false;
+    bind_settings_load("act_schema", "2");
+    bind_settings_load("bind_pad_a", "south");
+    bind_settings_load("bind_pad_b", "east");
+    bind_settings_load("act_pad_0", "south");
+    bind_settings_load("act_pad_14", "east");
+    input_open_startup_pad();
+    assert(sync_inited && !prev_auto_swap);
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east && g_act_pad[14] == east);
+    input_sync_pad_layout();
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east && g_act_pad[14] == east);
+    pad_family = 1;
+    input_sync_pad_layout();
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east && g_act_pad[14] == east);
+
+    // Cold headless startup with auto_swap_ab = false, saved Nintendo; toggling true headless stays Nintendo until Xbox connects
+    sync_inited = false;
+    prev_auto_swap = false;
+    pad = NULL;
+    pad_family = 0;
+    bind_reset(BIND_DEV_PAD);
+    g_settings.auto_swap_ab = false;
+    input_open_startup_pad();
+    assert(sync_inited && !prev_auto_swap);
+    g_settings.auto_swap_ab = true;
+    input_sync_pad_layout();
+    assert(prev_auto_swap);
+    assert(g_bind_pad[BIND_A] == east && g_bind_pad[BIND_B] == south && g_act_pad[14] == south);
+    pad_family = 1;
+    input_sync_pad_layout();
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east);
+    assert(g_act_pad[0] == south && g_act_pad[14] == east);
+
     g_settings.auto_swap_ab = false;
     bind_reset(BIND_DEV_PAD);
     puts("PASS: auto_swap_ab startup/toggle sync and Cancel action alignment");

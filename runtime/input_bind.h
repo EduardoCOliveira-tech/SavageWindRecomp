@@ -68,6 +68,7 @@ void bind_reset(int dev);
 void bind_swap_ab(void);                       // the controller's A on the bottom button, B on the right (and their actions)
 void bind_restore_nintendo_ab(void);           // undo bind_swap_ab: A on East, B on South (and their actions)
 void bind_reset_slot(int slot);              // one input (or action: BIND_ACTION + id) back to its defaults, both devices
+void bind_reset_action_slot(int dev, int id); // one device's action binding back to its layout default
 bool bind_is_default(int dev);
 bool bind_is_default_slot(int dev, int slot);
 

@@ -603,13 +603,15 @@ size_t glyphs_patch_hud_flyt(const uint8_t *b, size_t n, uint8_t *out, int which
     static const char icon_font[] = "External_00.bffnt";
     static const float k_act_xy[4][2] = {{26.0f, 0.0f}, {0.0f, -26.0f}, {0.0f, 26.0f}, {-26.0f, 0.0f}};
     static const float k_dim_xy[4][2] = {{26.2f, 0.8f}, {1.0f, -26.0f}, {0.8f, 26.0f}, {-25.5f, -0.2f}};
+    if (which < 0 || which >= 4) return 0;
     if (n < 0x14 || memcmp(b, "FLYT", 4) || b[4] != 0xFF || b[5] != 0xFE) return 0;
     size_t hs = b[6] | b[7] << 8, o = hs, w = hs;
     if (hs > n) return 0;
     memcpy(out, b, hs);
     bool fonts = false, seen_capture = false;
     bool reorder = pos && (pos[0] != 0 || pos[1] != 1 || pos[2] != 2 || pos[3] != 3);
-    int act = reorder && which >= 0 && which < 4 ? pos[which] : which;
+    int act = reorder ? pos[which] : which;
+    if (act < 0 || act >= 4) return 0;
     bool west = act == 3;
     while (o + 8 <= n) {
         uint32_t sz;

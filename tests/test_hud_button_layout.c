@@ -291,6 +291,18 @@ int main(void) {
         assert(glyphs_hud_restart_needed());
     }
 
+    // Out-of-bounds which / pos guards in glyphs_patch_hud_flyt
+    {
+        uint8_t src[2048], dst[2112];
+        size_t sn = build_synthetic_padocommand(src, 0);
+        int ok_pos[4] = {1, 0, 2, 3};
+        int bad_pos[4] = {4, 0, 2, 3};
+        int dummy_panes = 0;
+        assert(glyphs_patch_hud_flyt(src, sn, dst, -1, ok_pos, false, &dummy_panes) == 0);
+        assert(glyphs_patch_hud_flyt(src, sn, dst, 4, ok_pos, false, &dummy_panes) == 0);
+        assert(glyphs_patch_hud_flyt(src, sn, dst, 0, bad_pos, false, &dummy_panes) == 0);
+    }
+
     puts("PASS: HUD button layout, transparent guides, FLYT patching, and settings");
     return 0;
 }

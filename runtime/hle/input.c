@@ -621,8 +621,16 @@ int input_pad_family(void) {
     return env >= 0 ? env : pad_family;
 }
 
+static bool sync_inited, prev_auto_swap;
+
+static void input_init_sync_state(void) {
+    if (!sync_inited) {
+        sync_inited = true;
+        prev_auto_swap = g_settings.auto_swap_ab;
+    }
+}
+
 void input_sync_pad_layout(void) {
-    static bool sync_inited, prev_auto_swap;
     bool auto_swap = g_settings.auto_swap_ab;
     if (!auto_swap) {
         bool turned_off = sync_inited && prev_auto_swap;
@@ -690,6 +698,7 @@ void input_open_startup_pad(void) {
         SDL_free(ids);
     }
     if (pad || getenv("SAVAGEWIND_PAD_TYPE")) input_sync_pad_layout();
+    else input_init_sync_state();
 }
 
 void input_handle_event(const SDL_Event *e) {

@@ -172,11 +172,17 @@ static int def_pad_for_slot(int slot) {
     return k_def_pad[slot];
 }
 
+void bind_reset_action_slot(int dev, int id) {
+    if (id < 0 || id >= ACT_COUNT) return;
+    if (dev == BIND_DEV_PAD) act_set(BIND_DEV_PAD, id, act_pad_default_for_layout(id));
+    else act_set(dev, id, ACT_FOLLOW);
+}
+
 void bind_reset_slot(int slot) {
     if (bind_slot_is_action(slot)) {
         int id = slot - BIND_ACTION;
-        act_set(BIND_DEV_PAD, id, act_pad_default_for_layout(id));
-        act_set(BIND_DEV_KEY, id, ACT_FOLLOW);
+        bind_reset_action_slot(BIND_DEV_PAD, id);
+        bind_reset_action_slot(BIND_DEV_KEY, id);
         return;
     }
     if (slot < 0 || slot >= BIND_KEY_COUNT) return;

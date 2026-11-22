@@ -656,6 +656,77 @@ static void auto_swap_ab_reconciled_with_actions(void) {
     bind_reset(BIND_DEV_PAD);
 }
 
+static void reset_action_slot_respects_auto_swap_ab(void) {
+    const int south = SDL_GAMEPAD_BUTTON_SOUTH, east = SDL_GAMEPAD_BUTTON_EAST;
+    const int west = SDL_GAMEPAD_BUTTON_WEST;
+
+    // Xbox with auto_swap_ab = true: per-action pad reset restores Xbox A/B convention
+    bind_reset(BIND_DEV_PAD);
+    bind_reset(BIND_DEV_KEY);
+    test_pad_fam = 1;
+    g_settings.auto_swap_ab = true;
+    bind_swap_ab();
+    assert(g_act_pad[0] == south && g_act_pad[14] == east);
+    assert(bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 0));
+    assert(bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+
+    act_set(BIND_DEV_PAD, 0, west);
+    assert(!bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 0));
+    bind_reset_action_slot(BIND_DEV_PAD, 0);
+    assert(g_act_pad[0] == south);
+    assert(bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 0));
+
+    act_set(BIND_DEV_PAD, 14, west);
+    assert(!bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+    bind_reset_action_slot(BIND_DEV_PAD, 14);
+    assert(g_act_pad[14] == east);
+    assert(bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+
+    act_set(BIND_DEV_PAD, 14, ACT_NONE);
+    assert(!bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+    bind_reset_action_slot(BIND_DEV_PAD, 14);
+    assert(g_act_pad[14] == east);
+    assert(bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+
+    // Keyboard action reset restores keyboard factory default without affecting pad bindings
+    act_set(BIND_DEV_PAD, 14, west);
+    act_set(BIND_DEV_KEY, 14, SDL_SCANCODE_G);
+    assert(!bind_is_default_slot(BIND_DEV_KEY, BIND_ACTION + 14));
+    bind_reset_action_slot(BIND_DEV_KEY, 14);
+    assert(g_act_key[14] == SDL_SCANCODE_LSHIFT);
+    assert(bind_is_default_slot(BIND_DEV_KEY, BIND_ACTION + 14));
+    assert(g_act_pad[14] == west);
+    bind_reset_action_slot(BIND_DEV_PAD, 14);
+    assert(g_act_pad[14] == east && bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+
+    // PlayStation with auto_swap_ab = true also restores East for Cancel
+    test_pad_fam = 2;
+    act_set(BIND_DEV_PAD, 14, south);
+    assert(!bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+    bind_reset_action_slot(BIND_DEV_PAD, 14);
+    assert(g_act_pad[14] == east && bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+
+    // Nintendo restores South for Cancel
+    test_pad_fam = 0;
+    act_set(BIND_DEV_PAD, 14, east);
+    assert(!bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+    bind_reset_action_slot(BIND_DEV_PAD, 14);
+    assert(g_act_pad[14] == south && bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+
+    // Xbox with auto_swap_ab = false restores South (Nintendo default) for Cancel
+    test_pad_fam = 1;
+    g_settings.auto_swap_ab = false;
+    act_set(BIND_DEV_PAD, 14, east);
+    assert(!bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+    bind_reset_action_slot(BIND_DEV_PAD, 14);
+    assert(g_act_pad[14] == south && bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+
+    test_pad_fam = 0;
+    g_settings.auto_swap_ab = true;
+    bind_reset(BIND_DEV_PAD);
+    bind_reset(BIND_DEV_KEY);
+}
+
 int main(void) {
     static const uint32_t k_masks_190[ACT_COUNT] = {
         0x1, 0x2, 0x8, 0x10, 0x8, 0x1, 0x8, 0x2, 0x8, 0x2, 0x8, 0x8, 0x2, 0x4, 0x2, 0x40, 0x1, 0x80, 0x20, 0x8, 0x2,
@@ -680,6 +751,7 @@ int main(void) {
     host_pad_slots();
     swap_ab_sets_the_xbox_convention();
     auto_swap_ab_reconciled_with_actions();
+    reset_action_slot_respects_auto_swap_ab();
     names_and_groups();
     puts("action bindings: default fallthrough, custom host bindings, schema migration, held / pressed, menus, shared keys, pad capture, contexts, A / B swap, reset and ini passed");
     return 0;
