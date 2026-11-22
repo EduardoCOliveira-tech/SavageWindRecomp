@@ -1130,3 +1130,5 @@ T("Transparent control guides", "คู่มือปุ่มควบคุ�
 T("Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.", "ลบแผ่นพื้นหลังสีเข้มด้านหลังคู่มือควบคุมและปุ่มคำสั่ง โดยคงเหลือเฉพาะปุ่มและข้อความ จะมีผลหลังจากเริ่มโปรแกรมใหม่")
 T("Starts the game again with these settings. Progress since your last save is lost.", "เริ่มเกมใหม่ด้วยการตั้งค่าเหล่านี้ ความคืบหน้าตั้งแต่การบันทึกครั้งล่าสุดจะหายไป")
 T("Starts the game again with these settings. Unsaved progress is lost.", "เริ่มเกมใหม่ด้วยการตั้งค่าเหล่านี้ ความคืบหน้าที่ยังไม่ได้บันทึกจะหายไป")
+T("Swap A / B on Xbox & PlayStation", "สลับปุ่ม A / B บน Xbox และ PlayStation")
+T("Automatically swap confirm (South) and back (East) when an Xbox or PlayStation controller is detected.", "สลับปุ่มยืนยัน (ล่าง) และย้อนกลับ (ขวา) อัตโนมัติเมื่อตรวจพบคอนโทรลเลอร์ Xbox หรือ PlayStation")

@@ -1130,3 +1130,5 @@ T("Transparent control guides", "Прозрачные подсказки упр�
 T("Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.", "Убирает тёмную фоновую плашку под подсказками управления, оставляя только кнопки и текст. Применяется после перезапуска.")
 T("Starts the game again with these settings. Progress since your last save is lost.", "Перезапускает игру с этими настройками. Прогресс с последнего сохранения будет потерян.")
 T("Starts the game again with these settings. Unsaved progress is lost.", "Перезапускает игру с этими настройками. Несохранённое будет потеряно.")
+T("Swap A / B on Xbox & PlayStation", "Поменять A / B на Xbox и PlayStation")
+T("Automatically swap confirm (South) and back (East) when an Xbox or PlayStation controller is detected.", "Автоматически меняет подтверждение (низ) и назад (право) при подключении геймпада Xbox или PlayStation.")

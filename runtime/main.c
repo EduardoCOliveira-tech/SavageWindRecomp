@@ -172,6 +172,7 @@ static void boot(const char *root) {
     loader_load(exefs);
     { extern void fs_title_version_patch(void); fs_title_version_patch(); }  // (runtime/services/fs.c)
     { extern void settings_load(void); settings_load(); }
+    { extern void input_open_startup_pad(void); input_open_startup_pad(); }
     { extern void language_booted(void); language_booted(); }  // (runtime/language.c)
     plat_cpu_placement();
     kernel_init();

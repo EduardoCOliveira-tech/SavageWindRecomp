@@ -149,6 +149,7 @@ int bind_label_family(void) {
 
 static void result(int kind, int dev, int slot, int other);
 static int act_default(int dev, int id);
+static int act_pad_default_for_layout(int id);
 static void act_refresh(void);
 
 void bind_reset(int dev) {
@@ -159,15 +160,36 @@ void bind_reset(int dev) {
     result(5, dev, -1, -1);
 }
 
+static int def_pad_for_slot(int slot) {
+    if (slot < 0 || slot >= BIND_KEY_COUNT) return -1;
+    if (g_settings.auto_swap_ab) {
+        int fam = input_pad_family();
+        if (fam == 1 || fam == 2) {
+            if (slot == BIND_A) return SDL_GAMEPAD_BUTTON_SOUTH;
+            if (slot == BIND_B) return SDL_GAMEPAD_BUTTON_EAST;
+        }
+    }
+    return k_def_pad[slot];
+}
+
 void bind_reset_slot(int slot) {
     if (bind_slot_is_action(slot)) {
-        act_set(BIND_DEV_PAD, slot - BIND_ACTION, ACT_FOLLOW);
-        act_set(BIND_DEV_KEY, slot - BIND_ACTION, ACT_FOLLOW);
+        int id = slot - BIND_ACTION;
+        act_set(BIND_DEV_PAD, id, act_pad_default_for_layout(id));
+        act_set(BIND_DEV_KEY, id, ACT_FOLLOW);
         return;
     }
     if (slot < 0 || slot >= BIND_KEY_COUNT) return;
     g_bind_key[slot] = k_def_key[slot];
-    if (bind_pad_slot(slot)) g_bind_pad[slot] = k_def_pad[slot];
+    if (bind_pad_slot(slot)) {
+        int want = def_pad_for_slot(slot);
+        if ((slot == BIND_A || slot == BIND_B) && g_bind_pad[slot == BIND_A ? BIND_B : BIND_A] == want) {
+            g_bind_pad[BIND_A] = (int16_t)def_pad_for_slot(BIND_A);
+            g_bind_pad[BIND_B] = (int16_t)def_pad_for_slot(BIND_B);
+        } else {
+            g_bind_pad[slot] = (int16_t)want;
+        }
+    }
     act_refresh();
 }
 
@@ -200,17 +222,53 @@ void bind_swap_ab(void) {
     result(6, BIND_DEV_PAD, -1, -1);
 }
 
+// Undo bind_swap_ab() back to Nintendo (A on East, B on South) and realign A / B actions (Cancel on South).
+void bind_restore_nintendo_ab(void) {
+    const int south = SDL_GAMEPAD_BUTTON_SOUTH, east = SDL_GAMEPAD_BUTTON_EAST;
+    int a = g_bind_pad[BIND_A], b = g_bind_pad[BIND_B];
+    if (a < 0 || b < 0 || a == b) return;
+    bool changed = false;
+    if (a == south && b == east) {
+        g_bind_pad[BIND_A] = east, g_bind_pad[BIND_B] = south;
+        for (int id = 0; id < ACT_COUNT; id++) {
+            if (g_act_pad[id] == south) act_set(BIND_DEV_PAD, id, east);
+            else if (g_act_pad[id] == east) act_set(BIND_DEV_PAD, id, south);
+        }
+        a = g_bind_pad[BIND_A], b = g_bind_pad[BIND_B];
+        changed = true;
+    }
+    if (a == east && b == south)
+        for (int id = 0; id < ACT_COUNT; id++) {
+            int sb = act_switch_button(id);
+            if (sb == BIND_A && g_act_pad[id] == south) { act_set(BIND_DEV_PAD, id, east); changed = true; }
+            else if (sb == BIND_B && g_act_pad[id] == east) { act_set(BIND_DEV_PAD, id, south); changed = true; }
+        }
+    if (changed) {
+        LOG("[input] controller: confirm and back in the Nintendo convention (A on %s, B on %s)\n", k_pad_ini[a], k_pad_ini[b]);
+        result(6, BIND_DEV_PAD, -1, -1);
+    }
+}
+
 bool bind_is_default(int dev) {
     for (int id = 0; id < ACT_COUNT; id++)
         if (!bind_is_default_slot(dev, BIND_ACTION + id)) return false;
-    return dev == BIND_DEV_PAD ? !memcmp(g_bind_pad, k_def_pad, sizeof g_bind_pad) : !memcmp(g_bind_key, k_def_key, sizeof g_bind_key);
+    if (dev == BIND_DEV_PAD) {
+        for (int s = 0; s < BIND_KEY_COUNT; s++)
+            if (g_bind_pad[s] != def_pad_for_slot(s)) return false;
+        return true;
+    }
+    return !memcmp(g_bind_key, k_def_key, sizeof g_bind_key);
 }
 
 bool bind_is_default_slot(int dev, int slot) {
-    if (bind_slot_is_action(slot)) return act_default(dev, slot - BIND_ACTION) ==
-        (dev == BIND_DEV_PAD ? g_act_pad[slot - BIND_ACTION] : g_act_key[slot - BIND_ACTION]);
+    if (bind_slot_is_action(slot)) {
+        int id = slot - BIND_ACTION;
+        if (id < 0 || id >= ACT_COUNT) return true;
+        if (dev == BIND_DEV_PAD) return g_act_pad[id] == act_pad_default_for_layout(id);
+        return g_act_key[id] == act_default(BIND_DEV_KEY, id);
+    }
     if (slot < 0 || slot >= BIND_KEY_COUNT) return true;
-    return dev == BIND_DEV_PAD ? g_bind_pad[slot] == k_def_pad[slot] : g_bind_key[slot] == k_def_key[slot];
+    return dev == BIND_DEV_PAD ? g_bind_pad[slot] == def_pad_for_slot(slot) : g_bind_key[slot] == k_def_key[slot];
 }
 
 
@@ -438,6 +496,11 @@ static int act_default(int dev, int id) {
     int b = mask_button(k_masks_190[id]);
     if (b < 0) return ACT_NONE;
     return dev == BIND_DEV_PAD ? k_def_pad[b] : k_def_key[b];
+}
+
+static int act_pad_default_for_layout(int id) {
+    int b = mask_button(k_masks_190[id]);
+    return b < 0 ? ACT_NONE : def_pad_for_slot(b);
 }
 
 bool act_is_default(int id) {

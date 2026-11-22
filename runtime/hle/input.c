@@ -601,6 +601,7 @@ int input_last_device(void) { return pad ? last_device : DEVICE_KEYBOARD; }
 // SAVAGEWIND_PAD_TYPE=xbox|playstation|nintendo|steamdeck pretends one is attached (tests).
 static _Atomic int pad_family;
 static SDL_JoystickID first_valve;  // the first Valve pad opened: in Gaming Mode, Steam Input's one for the Deck's controls
+void input_sync_pad_layout(void);
 static void note_family(void) {
     int f = pad ? bind_pad_family(SDL_GetGamepadType(pad), SDL_GetGamepadVendor(pad), SDL_GetGamepadProduct(pad),
                                   SDL_GetGamepadName(pad), SDL_GetGamepadID(pad) == first_valve) : 0;
@@ -609,6 +610,7 @@ static void note_family(void) {
                              pad ? SDL_GetGamepadName(pad) : "none", pad ? SDL_GetGamepadVendor(pad) : 0,
                              pad ? SDL_GetGamepadProduct(pad) : 0, pad ? (int)SDL_GetGamepadType(pad) : 0);
     pad_family = f;
+    if (pad) input_sync_pad_layout();
 }
 int input_pad_family(void) {
     static int env = -2;
@@ -617,6 +619,35 @@ int input_pad_family(void) {
         env = !e ? -1 : !strcmp(e, "xbox") ? 1 : !strcmp(e, "playstation") || !strcmp(e, "ps") ? 2 : !strcmp(e, "steamdeck") ? 3 : 0;
     }
     return env >= 0 ? env : pad_family;
+}
+
+void input_sync_pad_layout(void) {
+    static bool sync_inited, prev_auto_swap;
+    bool auto_swap = g_settings.auto_swap_ab;
+    if (!auto_swap) {
+        bool turned_off = sync_inited && prev_auto_swap;
+        sync_inited = true;
+        prev_auto_swap = false;
+        if (turned_off) bind_restore_nintendo_ab();
+        return;
+    }
+    sync_inited = true;
+    prev_auto_swap = true;
+    int fam = input_pad_family();
+    if (fam == 1 || fam == 2) {
+        const int south = SDL_GAMEPAD_BUTTON_SOUTH, east = SDL_GAMEPAD_BUTTON_EAST;
+        bool need_ab = g_bind_pad[BIND_A] == east && g_bind_pad[BIND_B] == south;
+        bool need_act = false;
+        if (g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east)
+            for (int id = 0; id < ACT_COUNT && !need_act; id++) {
+                int sb = act_switch_button(id);
+                if ((sb == BIND_A && g_act_pad[id] == east) || (sb == BIND_B && g_act_pad[id] == south))
+                    need_act = true;
+            }
+        if (need_ab || need_act) bind_swap_ab();
+    } else {
+        bind_restore_nintendo_ab();
+    }
 }
 
 // Every controller connected is open; the game reads the one pressed last (pad): on a Steam Deck, the Deck's own
@@ -650,6 +681,17 @@ static void pad_open(SDL_JoystickID id) {
     else motion_pads(pad, pads, npads);
 }
 
+void input_open_startup_pad(void) {
+    if (SDL_WasInit(SDL_INIT_GAMEPAD)) {
+        SDL_UpdateGamepads();
+        int n = 0;
+        SDL_JoystickID *ids = SDL_GetGamepads(&n);
+        for (int i = 0; ids && i < n; i++) pad_open(ids[i]);
+        SDL_free(ids);
+    }
+    if (pad || getenv("SAVAGEWIND_PAD_TYPE")) input_sync_pad_layout();
+}
+
 void input_handle_event(const SDL_Event *e) {
     if (pc_cursor_event(e)) return;
     // Mouse bow aiming, in play only: the right button aims (instead of its binding, the shield by default) and the
@@ -672,10 +714,7 @@ void input_handle_event(const SDL_Event *e) {
     static bool scanned;  // pads present at startup: their ADDED event may have gone to the start screen's loop
     if (!scanned) {
         scanned = true;
-        int n = 0;
-        SDL_JoystickID *ids = SDL_GetGamepads(&n);
-        for (int i = 0; i < n; i++) pad_open(ids[i]);
-        SDL_free(ids);
+        input_open_startup_pad();
     }
     switch (e->type) {
     case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP:

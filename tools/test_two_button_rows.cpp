@@ -67,6 +67,7 @@ int language_pending(void) { return 0; }
 bool glyphs_hud_restart_needed(void) { return false; }
 int input_last_device(void) { return DEVICE_KEYBOARD; }
 int input_pad_family(void) { return 1; }
+void input_sync_pad_layout(void) {}
 void pc_cursor_options_focus(uint64_t, uint64_t row, unsigned kind) {
     focused_row = row; focused_kind = kind; focus_count++;
 }

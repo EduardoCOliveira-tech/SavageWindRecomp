@@ -92,6 +92,7 @@ Settings g_settings = {
     .fov = 100,
     .hud_size = 100,
     .transparent_guides = false,
+    .auto_swap_ab = true,
     .menu_speed = 100,
     .color_lut_strength = 100,
     .haze = 100,
@@ -469,6 +470,7 @@ void settings_load(void) {
             for (int i = 0; i < BUTTON_LAYOUT_COUNT; i++)
                 if (!strcmp(val, k_button_layout[i])) g_settings.button_layout = i;
         }
+        else if (!strcmp(key, "auto_swap_ab")) g_settings.auto_swap_ab = atoi(val) != 0;
         else if (!strcmp(key, "async_shaders")) g_settings.async_shaders = atoi(val) != 0;
         else if (!strcmp(key, "precompile_shaders")) g_settings.precompile_shaders = atoi(val) != 0;
         else if (!strcmp(key, "dlss_download")) g_settings.dlss_download = atoi(val) != 0;
@@ -812,6 +814,7 @@ void settings_save(void) {
     fprintf(f, "button_layout = %s\n",
             k_button_layout[g_settings.button_layout >= 0 && g_settings.button_layout < BUTTON_LAYOUT_COUNT ?
                                 g_settings.button_layout : BUTTON_LAYOUT_AUTO]);
+    fprintf(f, "auto_swap_ab = %d\n", g_settings.auto_swap_ab);
     fprintf(f, "async_shaders = %d\n", g_settings.async_shaders);
     fprintf(f, "dlss_download = %d\n", g_settings.dlss_download);
     fprintf(f, "precompile_shaders = %d\n", g_settings.precompile_shaders);

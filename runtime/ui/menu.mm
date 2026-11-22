@@ -142,8 +142,10 @@ static ImGuiKey key_from_scancode(SDL_Scancode sc) {
     }
 }
 
-// Nintendo layout: the right face button (A) confirms, the bottom one (B) goes back.
+// Map face confirm / back according to bound A / B (follows auto_swap_ab and custom remaps), falling back to Nintendo layout.
 static ImGuiKey key_from_pad(Uint8 b) {
+    if ((int)b == g_bind_pad[BIND_A]) return ImGuiKey_GamepadFaceDown;   // activate
+    if ((int)b == g_bind_pad[BIND_B]) return ImGuiKey_GamepadFaceRight;  // cancel / back
     switch (b) {
     case SDL_GAMEPAD_BUTTON_EAST: return ImGuiKey_GamepadFaceDown;   // activate
     case SDL_GAMEPAD_BUTTON_SOUTH: return ImGuiKey_GamepadFaceRight; // cancel / back
@@ -1639,6 +1641,9 @@ static void tab_about(void) {
                        "100% is the game's own speed."))
             g_settings.stick_cam_y = (int)cy;
     }
+    if (opt_toggle("Swap A / B on Xbox & PlayStation", &g_settings.auto_swap_ab, true,
+                   "Automatically swap confirm (South) and back (East) when an Xbox or PlayStation controller is detected."))
+        input_sync_pad_layout();
     controls_bindings_draw(ImGui::GetFontSize() / 34);
     ImGui::Spacing();
     header("Menu");

@@ -4,8 +4,12 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include "game_sites.h"
 #include "input_bind.h"
+#include "settings.h"
 
+GameSites g_site;  // (no game: the HUD prompt check finds no screens)
+Settings g_settings;
 static uint64_t now;
 Uint64 SDL_GetTicks(void) { return now; }
 int input_pad_family(void) { return 1; }

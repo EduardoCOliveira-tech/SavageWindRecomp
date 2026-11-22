@@ -83,6 +83,13 @@ void motion_mouse(float x, float y) { tilt_mouse_x=x;tilt_mouse_y=y; }
 void motion_mouse_yaw(float steps) { tilt_mouse_yaw=steps; }
 bool motion_has_sensors(void) { return sensor_pad; }
 void motion_script(float p, float r, float x, float y) { (void)p; (void)r; (void)x; (void)y; abort(); }
+void motion_pads(SDL_Gamepad *in_use, SDL_Gamepad *const *p, int n) { (void)in_use; (void)p; (void)n; }
+void motion_pad_removed(SDL_Gamepad *p) { (void)p; }
+bool motion_pad_pressed(SDL_JoystickID id, uint64_t ns) { (void)id; (void)ns; return false; }
+bool motion_pads_twins(SDL_JoystickID a, SDL_JoystickID b) { (void)a; (void)b; return false; }
+bool motion_pad_sensor_only(SDL_Gamepad *p) { (void)p; return false; }
+SDL_JoystickID motion_sensor_pad(void) { return 0; }
+void motion_device_sensor_event(const SDL_Event *e) { (void)e; }
 void watch_arm(void) { abort(); }
 
 static void update(void) { input_mouse_update((SDL_Window *)(uintptr_t)1); }
@@ -251,4 +258,49 @@ int main(void) {
     input_handle_event(&e);
     assert(photo_takes == shots_before + 1);
     puts("PASS: PrintScreen triggers screenshot capture");
+
+    // auto_swap_ab layout sync with #934 actions: idempotent on startup (even when bind_pad_a = south
+    // was saved without act_pad_14) and cleanly restores Nintendo A/B + Cancel when toggled off.
+    const int south = SDL_GAMEPAD_BUTTON_SOUTH, east = SDL_GAMEPAD_BUTTON_EAST;
+    bind_reset(BIND_DEV_PAD);
+    pad_family = 1;  // Xbox
+    g_settings.auto_swap_ab = true;
+    input_sync_pad_layout();
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east);
+    assert(g_act_pad[0] == south && g_act_pad[14] == east);
+    input_sync_pad_layout();  // idempotent second sync
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east);
+    assert(g_act_pad[0] == south && g_act_pad[14] == east);
+
+    // Partial savagewind.ini with act_schema=2, auto_swap_ab=1, bind_pad_a=south/b=east but unswapped Cancel
+    bind_reset(BIND_DEV_PAD);
+    bind_settings_load("act_schema", "2");
+    bind_settings_load("bind_pad_a", "south");
+    bind_settings_load("bind_pad_b", "east");
+    input_sync_pad_layout();
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east);
+    assert(g_act_pad[0] == south && g_act_pad[14] == east);
+
+    // Toggling auto_swap_ab off restores Nintendo layout and Cancel action
+    g_settings.auto_swap_ab = false;
+    input_sync_pad_layout();
+    assert(g_bind_pad[BIND_A] == east && g_bind_pad[BIND_B] == south);
+    assert(g_act_pad[0] == east && g_act_pad[14] == south);
+
+    // PlayStation auto-swaps too; brief pad disconnect updates pad_family without clobbering bindings
+    g_settings.auto_swap_ab = true;
+    pad_family = 2;
+    input_sync_pad_layout();
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east && g_act_pad[14] == east);
+    pad = NULL;
+    note_family();
+    assert(pad_family == 0);
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east && g_act_pad[14] == east);
+
+    // Connecting a Nintendo controller swaps back to Nintendo layout cleanly
+    input_sync_pad_layout();
+    assert(g_bind_pad[BIND_A] == east && g_bind_pad[BIND_B] == south && g_act_pad[14] == south);
+    g_settings.auto_swap_ab = false;
+    bind_reset(BIND_DEV_PAD);
+    puts("PASS: auto_swap_ab startup/toggle sync and Cancel action alignment");
 }

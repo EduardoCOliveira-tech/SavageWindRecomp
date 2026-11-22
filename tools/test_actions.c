@@ -9,13 +9,16 @@
 
 #include "game_sites.h"
 #include "input_bind.h"
+#include "settings.h"
 
 GameSites g_site;  // (no game: the HUD prompt check finds no screens)
+Settings g_settings = {.auto_swap_ab = true};
+static int test_pad_fam;
 
 static uint64_t now;
 Uint64 SDL_GetTicks(void) { return now; }
 Uint64 SDL_GetTicksNS(void) { return now * 1000000ull; }
-int input_pad_family(void) { return 0; }
+int input_pad_family(void) { return test_pad_fam; }
 bool settings_steam_deck(void) { return false; }
 
 // Actions 2 / 3 / 5 / 9 read X / Y / A / B (the pad mask bits are sead's), the rest A
@@ -581,6 +584,78 @@ static void swap_ab_sets_the_xbox_convention(void) {
     bind_reset(BIND_DEV_PAD);
 }
 
+static void auto_swap_ab_reconciled_with_actions(void) {
+    const int south = SDL_GAMEPAD_BUTTON_SOUTH, east = SDL_GAMEPAD_BUTTON_EAST;
+    bind_reset(BIND_DEV_PAD);
+    bind_swap_ab();
+    bind_swap_ab();  // idempotent twice
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east);
+    assert(g_act_pad[0] == south && g_act_pad[14] == east);
+
+    int serial_before = 0;
+    bind_last_result(NULL, NULL, NULL, &serial_before);
+    bind_restore_nintendo_ab();
+    assert(g_bind_pad[BIND_A] == east && g_bind_pad[BIND_B] == south);
+    for (int id = 0; id < ACT_COUNT; id++) {
+        int sb = act_switch_button(id);
+        if (sb == BIND_A) assert(g_act_pad[id] == east);
+        else if (sb == BIND_B) assert(g_act_pad[id] == south);
+        else assert(g_act_pad[id] != south && g_act_pad[id] != east);
+    }
+    host(0, 0, 1u << south);  // Cancel (paraglider / wall release) returns to South (factory fallthrough)
+    act_poll(true);
+    assert(act_is_default(14) && act_is_default(0));
+    assert(hold(14) == -1 && hold(0) == -1);
+    host(0, 0, 0);
+    act_poll(true);
+
+    int serial_after_first = 0, serial_after_second = 0;
+    bind_last_result(NULL, NULL, NULL, &serial_after_first);
+    bind_restore_nintendo_ab();  // idempotent second call
+    bind_last_result(NULL, NULL, NULL, &serial_after_second);
+    assert(serial_after_first > serial_before && serial_after_second == serial_after_first);
+    assert(g_bind_pad[BIND_A] == east && g_bind_pad[BIND_B] == south);
+    assert(g_act_pad[0] == east && g_act_pad[14] == south);
+
+    // def_pad_for_slot / bind_is_default* / bind_reset_slot respect auto_swap_ab + Xbox/PS families
+    test_pad_fam = 1;  // Xbox
+    g_settings.auto_swap_ab = true;
+    bind_swap_ab();
+    assert(bind_is_default_slot(BIND_DEV_PAD, BIND_A));
+    assert(bind_is_default_slot(BIND_DEV_PAD, BIND_B));
+    assert(bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 0));
+    assert(bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+    assert(bind_is_default(BIND_DEV_PAD));
+
+    // Resetting BIND_A from Nintendo back to Xbox swaps clean without colliding with BIND_B
+    bind_restore_nintendo_ab();
+    assert(!bind_is_default_slot(BIND_DEV_PAD, BIND_A) && !bind_is_default(BIND_DEV_PAD));
+    bind_reset_slot(BIND_A);
+    assert(g_bind_pad[BIND_A] == south && g_bind_pad[BIND_B] == east);
+
+    // Resetting individual Cancel action on Xbox restores East (not South confirm)
+    act_set(BIND_DEV_PAD, 14, SDL_GAMEPAD_BUTTON_WEST);
+    assert(!bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+    bind_reset_slot(BIND_ACTION + 14);
+    assert(g_act_pad[14] == east);
+    assert(bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + 14));
+
+    // PlayStation also follows auto_swap_ab; Steam Deck and Nintendo stay Nintendo by default
+    test_pad_fam = 2;
+    assert(bind_is_default_slot(BIND_DEV_PAD, BIND_A) && bind_is_default_slot(BIND_DEV_PAD, BIND_B));
+    test_pad_fam = 3;
+    assert(!bind_is_default_slot(BIND_DEV_PAD, BIND_A) && !bind_is_default(BIND_DEV_PAD));
+    test_pad_fam = 1;
+    g_settings.auto_swap_ab = false;
+    assert(!bind_is_default_slot(BIND_DEV_PAD, BIND_A) && !bind_is_default(BIND_DEV_PAD));
+    bind_restore_nintendo_ab();
+    assert(bind_is_default(BIND_DEV_PAD));
+
+    test_pad_fam = 0;
+    g_settings.auto_swap_ab = true;
+    bind_reset(BIND_DEV_PAD);
+}
+
 int main(void) {
     static const uint32_t k_masks_190[ACT_COUNT] = {
         0x1, 0x2, 0x8, 0x10, 0x8, 0x1, 0x8, 0x2, 0x8, 0x2, 0x8, 0x8, 0x2, 0x4, 0x2, 0x40, 0x1, 0x80, 0x20, 0x8, 0x2,
@@ -604,6 +679,7 @@ int main(void) {
     captures_allow_shared_action_inputs();
     host_pad_slots();
     swap_ab_sets_the_xbox_convention();
+    auto_swap_ab_reconciled_with_actions();
     names_and_groups();
     puts("action bindings: default fallthrough, custom host bindings, schema migration, held / pressed, menus, shared keys, pad capture, contexts, A / B swap, reset and ini passed");
     return 0;

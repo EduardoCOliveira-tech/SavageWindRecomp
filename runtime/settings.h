@@ -137,6 +137,7 @@ typedef struct {
     char motion_dsu_axes[32];  // DSU server axes as the game takes them ("pitch yaw roll"; a name per slot, - flips it)
     int button_icons;    // ICONS_*: the game's button prompts show this device's buttons (Automatic: the one in use)
     int button_layout;   // BUTTON_LAYOUT_*: where A, B, X and Y sit on the HUD's four-button diamond (Automatic: bindings)
+    bool auto_swap_ab;   // swap confirm (South) and back (East) automatically on Xbox & PlayStation controllers
     bool async_shaders;  // draw on while new shaders compile (no stutter; what needs them is skipped meanwhile; on by
                          // default since settings_version 4; off: every draw waits for its shaders, as before)
     bool precompile_shaders;  // setting the game files up also precompiles every shader (runtime/nvn/precompile.h)

@@ -197,9 +197,15 @@ extern "C" void controls_bindings_draw(float scale) {
     // the page: the game's actions first (they follow the Switch inputs below until given a binding of their own)
     action_table("##actions", fam, cd, cs, ms);
     bool all_default = true;
-    for (int a = 0; a < ACT_COUNT; a++) all_default &= act_is_default(a);
+    for (int a = 0; a < ACT_COUNT; a++)
+        all_default &= bind_is_default_slot(BIND_DEV_PAD, BIND_ACTION + a) && bind_is_default_slot(BIND_DEV_KEY, BIND_ACTION + a);
     ImGui::BeginDisabled(all_default);
-    if (ImGui::Button(tr("Reset actions to defaults"))) { bind_capture_cancel(); act_reset(); settings_save(); }
+    if (ImGui::Button(tr("Reset actions to defaults"))) {
+        bind_capture_cancel();
+        act_reset();
+        if (g_settings.auto_swap_ab) input_sync_pad_layout();
+        settings_save();
+    }
     ImGui::EndDisabled();
 
     // what no action covers: the game's menus and quick menus, then movement, camera and motion. Raw Switch buttons are
@@ -218,7 +224,14 @@ extern "C" void controls_bindings_draw(float scale) {
 
     ImGui::Spacing();
     ImGui::BeginDisabled(bind_is_default(BIND_DEV_PAD));
-    if (ImGui::Button(tr("Reset controller to defaults"))) { bind_capture_cancel(); bind_reset(BIND_DEV_PAD); }
+    if (ImGui::Button(tr("Reset controller to defaults"))) {
+        bind_capture_cancel();
+        bind_reset(BIND_DEV_PAD);
+        input_sync_pad_layout();
+        bind_last_result(&rdev, &rslot, &rother, &seen_serial);
+        snprintf(msg, sizeof msg, "%s", tr("Controller bindings reset to the defaults."));
+        settings_save();
+    }
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::BeginDisabled(bind_is_default(BIND_DEV_KEY));

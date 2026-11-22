@@ -1260,6 +1260,14 @@ void build_items(void) {
                        [](const Item &, int x) { return tr(k_button_layout[x]); },
                        [](const Item &) { return g_settings.button_layout; },
                        [](const Item &, int x) { g_settings.button_layout = x; }, BUTTON_LAYOUT_AUTO));
+    v.push_back(toggle(P_CONTROLS, "Swap A / B on Xbox & PlayStation",
+                       "Automatically swap confirm (South) and back (East) when an Xbox or PlayStation controller is detected.",
+                       [](const Item &) { return (int)g_settings.auto_swap_ab; },
+                       [](const Item &, int x) {
+                           g_settings.auto_swap_ab = x != 0;
+                           input_sync_pad_layout();
+                       },
+                       1));
 
     // Key bindings: one row per action (key | controller button), then the inputs no action covers. A waits for the
     // next press: a key or mouse button binds the keyboard side, a controller button the controller side
@@ -2131,7 +2139,7 @@ extern "C" int rt_opt_reset(uint64_t row) {
     if (it->reset) it->reset(*it);
     else if (it->kind != KIND_BUTTON) it->set(*it, it->def);
     else if (it->action == A_BIND) bind_reset_slot(it->arg);
-    else if (it->action == A_RESET_BINDS) bind_reset(BIND_DEV_KEY), bind_reset(BIND_DEV_PAD), act_reset();
+    else if (it->action == A_RESET_BINDS) bind_reset(BIND_DEV_KEY), bind_reset(BIND_DEV_PAD), act_reset(), input_sync_pad_layout();
     settings_save();
     return 1;
 }
@@ -2216,6 +2224,7 @@ extern "C" int rt_opt_decide(uint64_t row) {
         bind_reset(BIND_DEV_KEY);
         bind_reset(BIND_DEV_PAD);
         act_reset();
+        input_sync_pad_layout();
         settings_save();
         mark_all_rows(rd64(row));
         return 2;

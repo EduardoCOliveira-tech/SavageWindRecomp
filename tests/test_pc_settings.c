@@ -19,10 +19,12 @@ int main(int argc, char **argv) {
     settings_load();
     assert(g_settings.pc_cursor == (atoi(argv[2]) != 0));
     assert(g_settings.rumble == (atoi(argv[3]) != 0));
+    assert(g_settings.auto_swap_ab == (atoi(argv[3]) != 0));
     assert(g_settings.sparse_heap == atoi(argv[4]));
     assert(g_settings.tex_lod_bias == atoi(argv[5]));
     assert(g_settings.audio_output == atoi(argv[4]));
     g_settings.rumble = !g_settings.rumble;
+    g_settings.auto_swap_ab = !g_settings.auto_swap_ab;
     // UI changes must remain possible even when startup debug overrides were supplied.
     g_settings.pc_cursor = !g_settings.pc_cursor;
     g_settings.sparse_heap = (g_settings.sparse_heap + 1) % SPARSE_HEAP_COUNT;

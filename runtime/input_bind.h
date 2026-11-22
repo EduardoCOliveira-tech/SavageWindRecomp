@@ -43,6 +43,8 @@ static inline bool bind_key_same_context(int a, int b) {
 enum { DEVICE_KEYBOARD, DEVICE_PAD };
 int input_last_device(void);
 int input_pad_family(void);  // the open controller: 0 Nintendo / other / none, 1 Xbox, 2 PlayStation, 3 Steam Deck
+void input_sync_pad_layout(void);  // align A / B and their actions with auto_swap_ab and input_pad_family()
+void input_open_startup_pad(void);  // open connected controllers at boot and sync A / B layout
 bool input_window_focused(void);
 #define BIND_VALVE_VENDOR 0x28de  // (USB vendor of the Steam Deck's controls and of Steam Input's virtual pads)
 #define BIND_DECK_PRODUCT 0x1205  // (the Steam Deck's controls, read directly)
@@ -64,6 +66,7 @@ const char *bind_key_label(int scancode);
 int bind_label_family(void);                   // the connected controller's family (also on the start screen)
 void bind_reset(int dev);
 void bind_swap_ab(void);                       // the controller's A on the bottom button, B on the right (and their actions)
+void bind_restore_nintendo_ab(void);           // undo bind_swap_ab: A on East, B on South (and their actions)
 void bind_reset_slot(int slot);              // one input (or action: BIND_ACTION + id) back to its defaults, both devices
 bool bind_is_default(int dev);
 bool bind_is_default_slot(int dev, int slot);

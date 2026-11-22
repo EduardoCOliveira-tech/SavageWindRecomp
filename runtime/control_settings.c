@@ -1,6 +1,7 @@
 // Control settings use the same field updates as ui/game_options.mm. Window changes are queued to the
 // window loop; Vulkan notices VSync/HDR changes at frame begin and recreates its swapchain there.
 #include "control.h"
+#include "input_bind.h"
 #include "settings.h"
 #include "language.h"
 #include "nvn/output_scale.h"
@@ -43,6 +44,7 @@ static const Setting settings[] = {
     F(motion_sens, .1, 10), I(motion_invert, 0, 3, "off|up_down|left_right|both"),
     I(button_icons, 0, ICONS_COUNT - 1, "auto|keyboard|xbox|playstation|nintendo|steamdeck"),
     I(button_layout, 0, BUTTON_LAYOUT_COUNT - 1, "auto|nintendo|swap_ab|xbox|swap_xy|gamecube"),
+    B(auto_swap_ab),
     B(async_shaders), B(precompile_shaders), B(dlss_download), B(quick_sort), B(quick_drop), B(discord_rpc),
     I(shadow_res, 0, SHADOW_COUNT - 1, "console|high|ultra|extreme|potato"), B(wide_view), B(hud_edges),
     I(hdr, 0, HDR_COUNT - 1, "auto|on|off"), I(hdr_white, 0, 1000, NULL),
@@ -246,6 +248,7 @@ static void cmd_set(int argc, char **argv, ControlReply *r) {
     else if (s->kind == FLOAT) *(float *)s->value = (float)value;
     else *(int *)s->value = v;
     if (is(s, "hdr_peak_nits") || is(s, "hdr_game_nits") || is(s, "hdr_ui_nits")) hdr_look_init_peak();
+    if (is(s, "auto_swap_ab")) input_sync_pad_layout();
     if (is(s, "fullscreen")) menu_request_window_apply();
     // Do not call settings_save(): file I/O on the presenting thread would block. A menu save may persist these.
     emit(s, r);

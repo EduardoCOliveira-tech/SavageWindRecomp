@@ -65,6 +65,7 @@ extern "C" {
 #include "nvn/precompile.h"
 #endif
 void controls_bindings_draw(float scale);  // ui/controls_ui.mm
+void input_handle_event(const SDL_Event *e);  // hle/input.c
 void ui_window_init(void);
 SDL_Window *ui_window(void);
 #ifdef __APPLE__
@@ -1145,10 +1146,11 @@ static bool menu_item(const char *label, bool enabled, bool *hovered = NULL, con
     return clicked;
 }
 
-// Controllers, as in the in-game menu (runtime/ui/menu.mm): read straight from SDL, Nintendo layout - the right face
-// button (A) confirms, the bottom one (B) goes back; d-pad / left stick move. (ImGui's own SDL gamepad handling is
-// switched off: it used the Xbox layout and, per the user, didn't work on the start screen.)
+// Controllers, as in the in-game menu (runtime/ui/menu.mm): follow the bound A / B buttons (auto_swap_ab / remaps),
+// falling back to Nintendo layout; d-pad / left stick move.
 static ImGuiKey launcher_pad_key(Uint8 b) {
+    if ((int)b == g_bind_pad[BIND_A]) return ImGuiKey_GamepadFaceDown;   // activate
+    if ((int)b == g_bind_pad[BIND_B]) return ImGuiKey_GamepadFaceRight;  // back
     switch (b) {
     case SDL_GAMEPAD_BUTTON_EAST: return ImGuiKey_GamepadFaceDown;   // A: activate
     case SDL_GAMEPAD_BUTTON_SOUTH: return ImGuiKey_GamepadFaceRight; // B: back
@@ -1167,10 +1169,7 @@ static ImGuiKey launcher_pad_key(Uint8 b) {
 }
 
 static void launcher_pad_open_all(void) {
-    int n = 0;
-    SDL_JoystickID *ids = SDL_GetGamepads(&n);
-    for (int i = 0; ids && i < n; i++) SDL_OpenGamepad(ids[i]);
-    SDL_free(ids);
+    input_open_startup_pad();
 }
 
 // true when the event was a controller event (handled here)
@@ -1178,8 +1177,9 @@ static bool launcher_pad_event(const SDL_Event &e) {
     ImGuiIO &io = ImGui::GetIO();
     switch (e.type) {
     case SDL_EVENT_GAMEPAD_ADDED:
-        SDL_OpenGamepad(e.gdevice.which);
-        io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
+    case SDL_EVENT_GAMEPAD_REMOVED:
+        input_handle_event(&e);
+        if (e.type == SDL_EVENT_GAMEPAD_ADDED) io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
         return true;
     case SDL_EVENT_GAMEPAD_BUTTON_DOWN: case SDL_EVENT_GAMEPAD_BUTTON_UP: {
         ImGuiKey k = launcher_pad_key(e.gbutton.button);
