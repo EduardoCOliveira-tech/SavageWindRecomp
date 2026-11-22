@@ -706,7 +706,9 @@ static void tab_colour(void) {
 }
 #endif
 
-static void tab_display(void) {
+extern "C" void rt_request_reboot(int kind);
+
+static void tab_display(bool in_game) {
     float scale = ImGui::GetFontSize() / 34;
     opt_begin("##video", scale);
     opt_section("Display");
@@ -844,6 +846,11 @@ static void tab_display(void) {
     }
     opt_toggle("Transparent control guides", &g_settings.transparent_guides, false,
                "Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.");
+    if (in_game && glyphs_hud_restart_needed() &&
+        opt_button("Restart now", "Starts the game again with these settings. Progress since your last save is lost.")) {
+        settings_save();
+        rt_request_reboot(1);
+    }
     {   // Menu cursor speed
         static const int speeds[] = MENU_SPEED_CHOICES;
         enum { NV = sizeof speeds / sizeof speeds[0] };
@@ -2038,7 +2045,7 @@ static void tabs_body(float scale, bool in_game, void (*prelaunch)(float)) {
                 }
                 switch (t.id) {
                 case -1: prelaunch(scale); break;
-                case 0: tab_display(); break;
+                case 0: tab_display(in_game); break;
                 case 1: tab_audio(); break;
                 case 2: tab_language(in_game); break;
                 case 3: saves_tab_draw(); break;

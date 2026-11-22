@@ -1127,3 +1127,5 @@ T("Lowers the 3D resolution when a frame takes long, as on the console.", "מו�
 T("As on the console: the game lowers its 3D resolution (down to 1280x720 before upscaling) while frames take long, and raises it again after. Off: always the full resolution. On with the Potato preset.", "כמו בקונסולה: המשחק מוריד את רזולוציית התלת-ממד שלו (עד 1280x720 לפני ההגדלה) כל עוד פריימים מתארכים, ומעלה אותה שוב אחר כך. כבוי: תמיד הרזולוציה המלאה. פועל עם ההגדרה Potato.")
 T("Transparent control guides", "מדריכי מקשים שקופים")
 T("Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.", "מסיר את לוח הרקע הכהה שמאחורי מדריכי הבקרה וההנחיות, ומשאיר רק כפתורים וטקסט. חל לאחר הפעלה מחדש.")
+T("Starts the game again with these settings. Progress since your last save is lost.", "מפעיל מחדש את המשחק עם ההגדרות האלה. כל התקדמות מאז השמירה האחרונה תאבד.")
+T("Starts the game again with these settings. Unsaved progress is lost.", "מפעיל מחדש את המשחק עם ההגדרות האלה. התקדמות שלא נשמרה תאבד.")

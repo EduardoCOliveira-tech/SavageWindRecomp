@@ -962,6 +962,8 @@ void build_items(void) {
                        "Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.",
                        [](const Item &) { return (int)g_settings.transparent_guides; },
                        [](const Item &, int x) { g_settings.transparent_guides = x; }, 0));
+    v.push_back(button(P_GAMEPLAY, "Restart now",
+                       "Starts the game again with these settings. Unsaved progress is lost.", "Restart", A_RESTART, 0));
 
 #ifndef __APPLE__
     // Colour (runtime/color_grade.h; vulkan/exec.c scene_post): the 3D image only, the HUD keeps its colours. The preset

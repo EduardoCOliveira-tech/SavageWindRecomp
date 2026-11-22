@@ -1128,3 +1128,5 @@ T("Lowers the 3D resolution when a frame takes long, as on the console.", "与�
 T("As on the console: the game lowers its 3D resolution (down to 1280x720 before upscaling) while frames take long, and raises it again after. Off: always the full resolution. On with the Potato preset.", "与主机版一样：帧耗时较长时，游戏会降低 3D 分辨率（放大前最低 1280x720），之后再升回。关闭：始终为完整分辨率。Potato 预设下开启。")
 T("Transparent control guides", "透明操作指引")
 T("Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.", "移除操作指引和按键提示后方的深色背景板，仅保留按键与文字。重启后生效。")
+T("Starts the game again with these settings. Progress since your last save is lost.", "以这些设置重新启动游戏。上次存档之后的进度将会丢失。")
+T("Starts the game again with these settings. Unsaved progress is lost.", "以这些设置重新启动游戏。未存档的进度将会丢失。")

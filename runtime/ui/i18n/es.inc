@@ -1127,3 +1127,5 @@ T("Lowers the 3D resolution when a frame takes long, as on the console.", "Baja 
 T("As on the console: the game lowers its 3D resolution (down to 1280x720 before upscaling) while frames take long, and raises it again after. Off: always the full resolution. On with the Potato preset.", "Como en la consola: el juego baja su resolución 3D (hasta 1280x720 antes del escalado) mientras los fotogramas tardan, y la vuelve a subir después. Desactivada: siempre la resolución completa. Activada con el preset Potato.")
 T("Transparent control guides", "Guías de control transparentes")
 T("Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.", "Elimina la placa de fondo oscura detrás de las guías de control e indicaciones, dejando solo botones y texto. Se aplica tras reiniciar.")
+T("Starts the game again with these settings. Progress since your last save is lost.", "Vuelve a iniciar el juego con estos ajustes. Se pierde el progreso desde tu último guardado.")
+T("Starts the game again with these settings. Unsaved progress is lost.", "Reinicia el juego con estos ajustes. Se pierde lo no guardado.")

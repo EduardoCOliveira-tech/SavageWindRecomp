@@ -64,6 +64,7 @@ void menu_size_list_open(void) { assert(false); }
 bool menu_size_list_up(void) { return false; }
 void rt_request_reboot(int) { assert(false); }
 int language_pending(void) { return 0; }
+bool glyphs_hud_restart_needed(void) { return false; }
 int input_last_device(void) { return DEVICE_KEYBOARD; }
 int input_pad_family(void) { return 1; }
 void pc_cursor_options_focus(uint64_t, uint64_t row, unsigned kind) {
