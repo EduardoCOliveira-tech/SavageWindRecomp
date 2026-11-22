@@ -1482,7 +1482,7 @@ HLE_FUNC("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE", hle_audr
 
 // ------------------------------------------------------------------ audout (buffers released in real time)
 typedef struct AudioOut {
-    uint32_t rate, channels, state;
+    uint32_t rate, channels, stream_ch, state;
     uint64_t tags[64], sizes[64], datas[64];
     SDL_AudioStream *stream;
     FILE *wav;
@@ -1558,20 +1558,22 @@ RT_ON_RESET(audio_reset) {
     LOG("[audio] reboot: %d outputs closed\n", n);
 }
 
+static int audout_dev_frames(SDL_AudioStream *st) {
+    SDL_AudioSpec dev;
+    int dev_frames = 0;
+    if (!st || !SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(st), &dev, &dev_frames) || dev_frames <= 0)
+        return 1024;
+    return dev_frames;
+}
+
 // Buffers are copied into an SDL stream and released once the stream has drained below its target, so the
 // stream plays the role of the hardware queue. Without a device, buffers are released in real time.
 static void *audout_thread(void *arg) {
     AudioOut *a = arg;
     prof_thread_name("audout");
     uint32_t ch = a->channels ? a->channels : 2;
-    int target = 0;
-    if (a->stream) {
-        SDL_AudioSpec dev;
-        int dev_frames = 0;
-        if (!SDL_GetAudioDeviceFormat(SDL_GetAudioStreamDevice(a->stream), &dev, &dev_frames) || dev_frames <= 0)
-            dev_frames = 1024;
-        target = 2 * dev_frames * 2 * (int)ch;  // bytes of s16 at the source rate (close enough at 48 kHz)
-    }
+    int dev_frames = a->stream ? audout_dev_frames(a->stream) : 0;
+    int prev_mode = g_settings.audio_output;
     while (!a->quit) {
         pthread_mutex_lock(&a->lock);
         uint64_t size = 0, tag = 0, data = 0;
@@ -1580,23 +1582,45 @@ static void *audout_thread(void *arg) {
         if (!size) { struct timespec ts = {0, 1000000}; nanosleep(&ts, NULL); continue; }
         uint64_t frames = size / (2 * ch);
         if (a->stream) {
+            int mode = g_settings.audio_output;
+            uint32_t want_ch = ch == 6 ? (uint32_t)audio_output_channels(mode) : ch;
+            bool mode_changed = mode != prev_mode;
+            prev_mode = mode;
+            if (want_ch != a->stream_ch) {
+                SDL_AudioSpec spec = {SDL_AUDIO_S16, (int)want_ch, (int)(a->rate ? a->rate : 48000)};
+                SDL_AudioStream *ns = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+                if (ns) {
+                    SDL_DestroyAudioStream(a->stream);
+                    a->stream = ns;
+                    a->stream_ch = want_ch;
+                    dev_frames = audout_dev_frames(a->stream);
+                    apply_gain(a->stream);
+                    SDL_ResumeAudioStreamDevice(a->stream);
+                    audio_3d_reset(&a->mix3d);
+                    mode_changed = false;
+                }
+            }
+            if (mode_changed && mode == AUDIO_OUT_HEADPHONES_3D) audio_3d_reset(&a->mix3d);
+            uint32_t sch = a->stream_ch ? a->stream_ch : ch;
+            int target = 2 * (dev_frames > 0 ? dev_frames : 1024) * 2 * (int)sch;  // bytes of s16 at the stream channel count
             apply_gain(a->stream);
             if (data) {
-                if (ch == 6 && g_settings.audio_output == AUDIO_OUT_HEADPHONES_3D) {
+                if (ch == 6 && sch == 2) {
                     const int16_t *src = (const int16_t *)(uintptr_t)data;
-                    int16_t buf[6 * 512];
+                    int16_t buf[2 * 512];
                     uint64_t rem = frames;
                     while (rem > 0) {
                         uint32_t chunk = rem > 512 ? 512 : (uint32_t)rem;
                         for (uint32_t i = 0; i < chunk; i++) {
                             float in[6], lr[2];
                             for (int k = 0; k < 6; k++) in[k] = src[i * 6 + k] * (1.0f / 32768.0f);
-                            audio_mix_sample(&a->mix3d, in, 6, AUDIO_OUT_HEADPHONES_3D, lr);
-                            buf[i * 6 + 0] = (int16_t)(lr[0] * 32767.0f);
-                            buf[i * 6 + 1] = (int16_t)(lr[1] * 32767.0f);
-                            buf[i * 6 + 2] = buf[i * 6 + 3] = buf[i * 6 + 4] = buf[i * 6 + 5] = 0;
+                            audio_mix_sample(&a->mix3d, in, 6, mode, lr);
+                            for (int c = 0; c < 2; c++) {
+                                float v = audio_clampf(lr[c], -1.0f, 1.0f);
+                                buf[i * 2 + c] = (int16_t)(v * 32767.0f);
+                            }
                         }
-                        SDL_PutAudioStreamData(a->stream, buf, (int)(chunk * 6 * sizeof(int16_t)));
+                        SDL_PutAudioStreamData(a->stream, buf, (int)(chunk * 2 * sizeof(int16_t)));
                         src += chunk * 6;
                         rem -= chunk;
                     }
@@ -1702,12 +1726,13 @@ SERVICE("audout:u", audout_u) {
         a->rate = IN(uint32_t, 0) ? IN(uint32_t, 0) : 48000;
         a->channels = IN(uint16_t, 4) ? IN(uint16_t, 4) : 2;
         if (a->channels != 1 && a->channels != 2 && a->channels != 6) a->channels = 2;
+        a->stream_ch = a->channels == 6 ? (uint32_t)audio_output_channels(g_settings.audio_output) : a->channels;
         a->state = 1;
         pthread_mutex_init(&a->lock, NULL);
         a->event = kernel_create_event_pair(&a->ev_w, &a->ev_r);
         if (getenv("SAVAGEWIND_AUDOUT_WAV")) a->wav = fopen(getenv("SAVAGEWIND_AUDOUT_WAV"), "wb");
         if (!(getenv("SAVAGEWIND_NO_AUDIO") && strcmp(getenv("SAVAGEWIND_NO_AUDIO"), "0")) && SDL_InitSubSystem(SDL_INIT_AUDIO)) {
-            SDL_AudioSpec spec = {SDL_AUDIO_S16, (int)a->channels, (int)a->rate};
+            SDL_AudioSpec spec = {SDL_AUDIO_S16, (int)a->stream_ch, (int)a->rate};
             a->stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
             if (a->stream) {
                 if (getenv("SAVAGEWIND_AUDIO_GAIN")) SDL_SetAudioStreamGain(a->stream, (float)atof(getenv("SAVAGEWIND_AUDIO_GAIN")));

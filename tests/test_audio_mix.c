@@ -148,12 +148,66 @@ static int test_binaural_center_lfe_and_headroom(void) {
     return 0;
 }
 
+static int test_clamping_and_bounds(void) {
+    // 6ch -> 2ch stereo ITU downmix clamps sums exceeding [-1.0f, 1.0f].
+    float out[6] = {0};
+    float pos_sat[6] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    float neg_sat[6] = {-1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f};
+    float asym_ext[6] = {2.5f, -2.5f, 1.5f, 0.5f, 1.5f, -1.5f};
+    audio_mix_sample(NULL, pos_sat, 6, AUDIO_OUT_STEREO, out);
+    CHECK(out[0] == 1.0f && out[1] == 1.0f, "stereo positive clamp got (%.5f, %.5f)", out[0], out[1]);
+    audio_mix_sample(NULL, neg_sat, 6, AUDIO_OUT_STEREO, out);
+    CHECK(out[0] == -1.0f && out[1] == -1.0f, "stereo negative clamp got (%.5f, %.5f)", out[0], out[1]);
+    audio_mix_sample(NULL, asym_ext, 6, AUDIO_OUT_STEREO, out);
+    CHECK(out[0] == 1.0f && out[1] == -1.0f, "stereo asymmetric extreme clamp got (%.5f, %.5f)", out[0], out[1]);
+
+    // 5.1 pass-through clamps out-of-range inputs to [-1.0f, 1.0f].
+    float ext51[6] = {1.5f, -1.5f, 2.0f, -2.0f, 1.2f, -1.2f};
+    audio_mix_sample(NULL, ext51, 6, AUDIO_OUT_SURROUND_51, out);
+    for (int k = 0; k < 6; k++)
+        CHECK(out[k] == ((k & 1) ? -1.0f : 1.0f), "5.1 clamp ch %d got %.5f", k, out[k]);
+
+    // 6ch -> 2ch 3D headphones keeps negative full-scale, overdriven, and non-finite inputs in [-1.0f, 1.0f].
+    Audio3DState st;
+    audio_3d_reset(&st);
+    for (int s = 0; s < 128; s++) {
+        float lr[2] = {0};
+        audio_mix_sample(&st, neg_sat, 6, AUDIO_OUT_HEADPHONES_3D, lr);
+        CHECK(lr[0] < -0.85f && lr[0] > -1.0f && nearf(lr[0], lr[1], 1e-6f),
+              "3D negative full-scale out of bounds at %d: (%.6f, %.6f)", s, lr[0], lr[1]);
+    }
+    audio_3d_reset(&st);
+    float zero[6] = {0};
+    float lr_zero[2] = {1.0f, 1.0f};
+    audio_mix_sample(&st, zero, 6, AUDIO_OUT_HEADPHONES_3D, lr_zero);
+    CHECK(lr_zero[0] == 0.0f && lr_zero[1] == 0.0f, "audio_3d_reset must clear delay/filter state");
+
+    float over_in[6] = {4.0f, -4.0f, 3.0f, 2.0f, 4.0f, -4.0f};
+    for (int s = 0; s < 64; s++) {
+        float lr[2] = {0};
+        audio_mix_sample(&st, over_in, 6, AUDIO_OUT_HEADPHONES_3D, lr);
+        CHECK(isfinite(lr[0]) && isfinite(lr[1]) && lr[0] >= -1.0f && lr[0] <= 1.0f && lr[1] >= -1.0f && lr[1] <= 1.0f,
+              "3D extreme over-range out of bounds at %d: (%.6f, %.6f)", s, lr[0], lr[1]);
+    }
+    audio_3d_reset(&st);
+    float huge_in[6] = {32.0f, 32.0f, 32.0f, 32.0f, 32.0f, 32.0f};
+    float inf_in[6] = {INFINITY, -INFINITY, 0, 0, 0, 0};
+    float lr[2] = {0};
+    audio_mix_sample(&st, huge_in, 6, AUDIO_OUT_HEADPHONES_3D, lr);
+    CHECK(lr[0] == 0.0f && lr[1] == 0.0f, "3D >16.0 soft-clip safety guard");
+    audio_3d_reset(&st);
+    audio_mix_sample(&st, inf_in, 6, AUDIO_OUT_HEADPHONES_3D, lr);
+    CHECK(lr[0] == 0.0f && lr[1] == 0.0f, "3D +/-Inf safety guard");
+    return 0;
+}
+
 int main(void) {
     if (test_channel_counts()) return 1;
     if (test_stereo_downmix()) return 1;
     if (test_surround_51_passthrough()) return 1;
     if (test_binaural_3d_itd_and_symmetry()) return 1;
     if (test_binaural_center_lfe_and_headroom()) return 1;
+    if (test_clamping_and_bounds()) return 1;
     printf("test_audio_mix: ok\n");
     return 0;
 }
