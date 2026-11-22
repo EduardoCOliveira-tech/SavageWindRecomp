@@ -783,6 +783,15 @@ test-bloom-scale: $(B)/test_bloom_scale
 
 .PHONY: test-bloom-scale
 
+$(B)/test_vdyn_policy: tests/test_vdyn_policy.c runtime/nvn/vulkan/vdyn_policy.h
+	@mkdir -p $(B)
+	$(CC) -O1 -Wall -Wextra -Werror -Iruntime -o $@ $<
+
+test-vdyn-policy: $(B)/test_vdyn_policy
+	$(B)/test_vdyn_policy
+
+.PHONY: test-vdyn-policy
+
 $(B)/test_audio_mix: tests/test_audio_mix.c runtime/audio_mix.h runtime/settings.h
 	@mkdir -p $(B)
 	$(CC) -O1 -Wall -Wextra -Werror -o $@ $< -lm

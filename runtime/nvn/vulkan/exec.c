@@ -24,6 +24,7 @@
 #include "shaders.h"
 #include "vk.h"
 #include "bloom_scale.h"
+#include "vdyn_policy.h"
 #include "vram.h"
 #include "fsr3.h"
 #include "fsr_api.h"
@@ -53,6 +54,8 @@ static uint64_t stat_gw_waits, stat_gw_holds;  // draws / dispatches that waited
 static uint64_t stat_uub, stat_uub_same, stat_gcopy_hit, stat_gcopy_miss, stat_gcopy_bytes;  // UpdateUniformBuffer; guest_copy cache
 static uint64_t stat_ubo_direct, stat_chain_barriers;  // constant buffers bound in place (ubo_direct)
 static void ubo_check_done(bool report);
+static void vdyn_check_submit(uint64_t seq);
+static void vdyn_check_inflight(uint64_t seq);
 static void vdyn_check(uint64_t seq);
 static void race_probe_check(uint64_t seq);
 static void race_probe_submit(uint64_t seq);
@@ -683,6 +686,7 @@ void vk_submit_extra(VkSemaphore wait, VkSemaphore signal, VkCommandBuffer extra
         SW_ACC("submit");
         dl_note("submit %llu", (unsigned long long)submit_seq + 1);
         ubo_check_submit(submit_seq + 1);
+        vdyn_check_submit(submit_seq + 1);
         race_probe_submit(submit_seq + 1);
         rec_QueueSubmit2(&si, submit_seq + 1);  // (the recorder: in order with the commands)
         PROF_ADD(prof_submit);
@@ -860,6 +864,7 @@ void renderer_wait_seq(uint64_t seq) {
             LOG("[vk] GPU overlap: a one-off readback in submission %llu, waited for %llu of %llu\n",
                 (unsigned long long)oneshot_seq, (unsigned long long)need, (unsigned long long)seq);
         }
+        vdyn_check_inflight(need);
         vk_wait_seq(need);
         vdyn_check(need);
         race_probe_check(need);
@@ -869,6 +874,7 @@ void renderer_wait_seq(uint64_t seq) {
         if (vk_completed_seq() >= seq) {
             if (seq >= deferred_seq) deferred_seq = 0;  // (in order: the older one is done too)
             pthread_mutex_unlock(&seq_lock);
+            vdyn_check(seq);
             race_probe_check(seq);
             readbacks_apply();
             return;
@@ -878,12 +884,16 @@ void renderer_wait_seq(uint64_t seq) {
             deferred_seq = seq;
             pthread_mutex_unlock(&seq_lock);
             deferred_handed_over(seq);
-            if (!prev) return;
+            if (!prev) {
+                vdyn_check_inflight(seq);
+                return;
+            }
             seq = prev;
         } else {  // the deferred fence again, or an older one: a real wait on it
             if (seq == prev) deferred_seq = 0;
             pthread_mutex_unlock(&seq_lock);
         }
+        vdyn_check_inflight(seq);
         vk_wait_seq(seq);
         vdyn_check(seq);
         race_probe_check(seq);
@@ -6609,21 +6619,27 @@ static void hc_list_begin(void) {
 // streaks across the screen (#956: an RTX 2060 at 120 fps; its 6 GB heap copy in chunks). Only a region seen changed
 // while read in VDYN_HITS frames is copied, as for the rest (the rain's ring: one region); every small GPU-written fetch
 // is sampled, not one in 32, so that ring is learned in the rain's first frames.
+// Dynamic > 4 KB buffers (e.g. 54,400 / 67,200 B rain vertex rings in 0x72d60 / 0x72d61) are protected via a 2-level
+// region state in vdyn[reg]: level 1 copies <= 64 KB (from <= 4 KB hits), while level 2 copies <= 256 KB only once
+// a > 4 KB slice changes strictly in-flight (c->seq > vk_completed_seq() before and after hash_words) in VDYN_HITS
+// distinct non-loading frames, preventing fast-travel/loading blow-ups (#815) while covering GPU-written rings (#956).
 // SAVAGEWIND_VK_VDYN=0: off; =2: every fetch up to 4 KB copied (no learning, the cost above).
-#define VDYN_N 4096
-#define VDYN_SAMPLE_MAX 4096
 #define VDYN_SHIFT 20  // (a region: 1 MB; 64 KB ones took 10 marks to cover the ring instead of 2)
-#define VDYN_SMASK 31  // (one small fetch in 32 sampled)
-#define VDYN_HITS 3
-#define VDYN_COPY_MAX (64u << 10)
+#define VDYN_PAGE_SHIFT 16
+#define VDYN_PAGE_WORDS (((HEAP_MAX >> VDYN_PAGE_SHIFT) + 63) >> 6)
 static int vdyn_mode = -1;
-static _Atomic uint8_t vdyn[HEAP_MAX >> VDYN_SHIFT];  // (a region: 1 once marked, see above)
-static uint8_t vdyn_hits[HEAP_MAX >> VDYN_SHIFT];       // (vdyn_lock: frames it changed in, in a row)
-static uint64_t vdyn_last[HEAP_MAX >> VDYN_SHIFT];      // (vdyn_lock: the frame of the last change)
-static struct { uint64_t addr, size, hash, seq; } vdyn_chk[VDYN_N];
+static _Atomic uint8_t vdyn[HEAP_MAX >> VDYN_SHIFT];  // (a region: 0 unmarked, 1 <= 64 KB, 2 <= 256 KB)
+static uint8_t vdyn_hits[HEAP_MAX >> VDYN_SHIFT];       // (vdyn_lock: <= 4 KB frames it changed in, in a row)
+static uint64_t vdyn_last[HEAP_MAX >> VDYN_SHIFT];      // (vdyn_lock: the frame of the last <= 4 KB change)
+static uint8_t vdyn_hits_mid[HEAP_MAX >> VDYN_SHIFT];   // (vdyn_lock: > 4 KB in-flight frames it changed in)
+static uint64_t vdyn_last_mid[HEAP_MAX >> VDYN_SHIFT];  // (vdyn_lock: the frame of the last > 4 KB change)
+static uint64_t vdyn_seen[VDYN_PAGE_WORDS];             // (render thread: first-seen 64 KB page bitmap)
+static struct { uint64_t base, addr, size, orig_size, hash, seq; } vdyn_chk[VDYN_N];
 static _Atomic uint64_t vdyn_w, vdyn_r;  // (written by the render thread / read by a waiting thread)
+static uint64_t vdyn_s;                  // (vdyn_lock: render thread cursor checked before Vulkan submit)
 static uint64_t vdyn_tick;
 static _Atomic int vdyn_marked;
+static int vdyn_log_n;
 static pthread_mutex_t vdyn_lock = PTHREAD_MUTEX_INITIALIZER;  // (the readers)
 
 static int vdyn_on(void) {
@@ -6636,48 +6652,121 @@ static int vdyn_on(void) {
     return vdyn_mode;
 }
 
-static bool vdyn_hit(uint64_t addr, uint64_t size) {
-    if (!atomic_load_explicit(&vdyn_marked, memory_order_relaxed) || addr < HEAP_BASE || addr + size > HEAP_BASE + HEAP_MAX) return false;
-    for (uint64_t r = (addr - HEAP_BASE) >> VDYN_SHIFT, e = (addr + size - 1 - HEAP_BASE) >> VDYN_SHIFT; r <= e; r++)
-        if (atomic_load_explicit(&vdyn[r], memory_order_relaxed)) return true;
-    return false;
+static bool vdyn_in_heap(uint64_t addr, uint64_t size) {
+    return size && addr >= HEAP_BASE && addr <= HEAP_BASE + HEAP_MAX && size <= HEAP_BASE + HEAP_MAX - addr;
 }
 
-// (render thread) a fetch read in place: copied instead (false) if its region was marked; some small ones sampled
-static bool vdyn_fetch(uint64_t addr, uint64_t size) {
+static uint8_t vdyn_max_level(uint64_t addr, uint64_t size) {
+    if (!atomic_load_explicit(&vdyn_marked, memory_order_acquire) || !vdyn_in_heap(addr, size)) return 0;
+    uint8_t max_lvl = 0;
+    for (uint64_t r = (addr - HEAP_BASE) >> VDYN_SHIFT, e = (addr + size - 1 - HEAP_BASE) >> VDYN_SHIFT; r <= e; r++) {
+        uint8_t lvl = atomic_load_explicit(&vdyn[r], memory_order_relaxed);
+        if (lvl > max_lvl) {
+            max_lvl = lvl;
+            if (max_lvl >= 2) break;
+        }
+    }
+    return max_lvl;
+}
+
+// (render thread) a fetch read in place: copied instead (false) if its region level covers size; eligible ones sampled
+static bool vdyn_fetch_at(uint64_t addr, uint64_t size, uint64_t sample_off) {
     if (!size || !vdyn_on()) return true;
-    bool gw = gw_overlaps(addr, addr + size);
+    uint64_t hi = size <= UINT64_MAX - addr ? addr + size : UINT64_MAX;
+    bool gw = gw_overlaps(addr, hi);
     if (vdyn_mode == 2 && size <= VDYN_SAMPLE_MAX && !gw) return false;
-    if (size <= VDYN_COPY_MAX && vdyn_hit(addr, size)) return false;
-    if (size > VDYN_SAMPLE_MAX || addr < HEAP_BASE || addr + size > HEAP_BASE + HEAP_MAX || (!gw && (++vdyn_tick & VDYN_SMASK)))
-        return true;
+    if (vdyn_level_copies(vdyn_max_level(addr, size), size)) return false;
+    if (vdyn_mode != 1 || size > VDYN_MID_MAX || !vdyn_in_heap(addr, size)) return true;
+    uint64_t hsz = size > VDYN_SAMPLE_MAX ? VDYN_SAMPLE_MAX : size;
+    uint64_t off = (size > VDYN_SAMPLE_MAX && sample_off < size) ? sample_off : 0;
+    if (off > size - hsz) off = size - hsz;
+    uint64_t saddr = addr + off;
+    uint64_t p0 = (saddr - HEAP_BASE) >> VDYN_PAGE_SHIFT;
+    uint64_t bit = 1ull << (p0 & 63);
+    bool first_seen = !(vdyn_seen[p0 >> 6] & bit);
+    if (!vdyn_should_sample(size, gw, first_seen, &vdyn_tick)) return true;
     uint64_t w = atomic_load_explicit(&vdyn_w, memory_order_relaxed);
     if (w - atomic_load_explicit(&vdyn_r, memory_order_acquire) >= VDYN_N) return true;  // (full: no sample)
+    if (first_seen) vdyn_seen[p0 >> 6] |= bit;
     __typeof__(vdyn_chk[0]) *c = &vdyn_chk[w % VDYN_N];
-    c->addr = addr, c->size = size, c->seq = vk_pending_seq();
-    c->hash = hash_words(0x9E3779B97F4A7C15ull, (const void *)(uintptr_t)addr, size & ~3ull);
+    c->base = addr, c->addr = saddr, c->size = hsz, c->orig_size = size, c->seq = vk_pending_seq();
+    c->hash = hash_words(0x9E3779B97F4A7C15ull, (const void *)(uintptr_t)saddr, (size_t)hsz);
     atomic_store_explicit(&vdyn_w, w + 1, memory_order_release);
     return true;
 }
 
 extern bool framepace_loading_ui(void);
-// (renderer_wait_seq, right after a real wait on submission seq) the samples recorded up to it, hashed again
+static void vdyn_check_one(const __typeof__(vdyn_chk[0]) *c, uint64_t frame, bool loading) {
+    if (loading || !vdyn_in_heap(c->base, c->orig_size) || !vdyn_in_heap(c->addr, c->size)) return;
+    if (vdyn_level_copies(vdyn_max_level(c->base, c->orig_size), c->orig_size)) return;
+    bool mid = c->orig_size > VDYN_SAMPLE_MAX;
+    if (mid && c->seq <= vk_completed_seq()) return;
+    if (hash_words(0x9E3779B97F4A7C15ull, (const void *)(uintptr_t)c->addr, (size_t)c->size) == c->hash) return;
+    bool still_inflight = c->seq > vk_completed_seq();
+    if (mid && !still_inflight) return;
+    uint64_t reg = (c->addr - HEAP_BASE) >> VDYN_SHIFT;
+    uint8_t cur = atomic_load_explicit(&vdyn[reg], memory_order_relaxed);
+    uint8_t *hits = mid ? &vdyn_hits_mid[reg] : &vdyn_hits[reg];
+    uint64_t *last = mid ? &vdyn_last_mid[reg] : &vdyn_last[reg];
+    uint8_t next = vdyn_record_hit(cur, hits, last, frame, loading, c->orig_size, still_inflight);
+    if (next > cur) {
+        atomic_store_explicit(&vdyn[reg], next, memory_order_relaxed);
+        if (cur == 0) atomic_fetch_add_explicit(&vdyn_marked, 1, memory_order_release);
+        if (vdyn_log_n < 32) {
+            vdyn_log_n++;
+            LOG("[vk] vertex data rewritten while read at %llx (%llu/%llu bytes): level %u (up to %u KB copied in %u KB region)\n",
+                (unsigned long long)c->addr, (unsigned long long)c->size, (unsigned long long)c->orig_size, next,
+                next == 2 ? (unsigned)(VDYN_MID_MAX >> 10) : (unsigned)(VDYN_COPY_MAX_SMALL >> 10), 1u << (VDYN_SHIFT - 10));
+        }
+    }
+}
+
+// (vk_submit_extra, right before rec_QueueSubmit2) check recent in-flight > 4 KB samples and newly queued samples
+static void vdyn_check_submit(uint64_t seq) {
+    if (vdyn_mode != 1 || pthread_mutex_trylock(&vdyn_lock)) return;
+    uint64_t r = atomic_load_explicit(&vdyn_r, memory_order_relaxed);
+    uint64_t w = atomic_load_explicit(&vdyn_w, memory_order_acquire);
+    if (vdyn_s < r || vdyn_s > w) vdyn_s = r;
+    uint64_t done = vk_completed_seq();
+    uint64_t frame = renderer_present_count();
+    bool loading = framepace_loading_ui();
+    uint64_t lo = vdyn_s - r > 1024 ? vdyn_s - 1024 : r;
+    for (uint64_t i = lo; i < vdyn_s; i++) {
+        __typeof__(vdyn_chk[0]) *c = &vdyn_chk[i % VDYN_N];
+        if (c->orig_size <= VDYN_SAMPLE_MAX || c->seq <= done) continue;
+        vdyn_check_one(c, frame, loading);
+    }
+    for (; vdyn_s < w && vdyn_chk[vdyn_s % VDYN_N].seq <= seq; vdyn_s++)
+        vdyn_check_one(&vdyn_chk[vdyn_s % VDYN_N], frame, loading);
+    pthread_mutex_unlock(&vdyn_lock);
+}
+
+// (renderer_wait_seq, before waiting or when deferring) check still-in-flight samples and retire completed head entries
+static void vdyn_check_inflight(uint64_t seq) {
+    if (vdyn_mode != 1 || pthread_mutex_trylock(&vdyn_lock)) return;
+    uint64_t r = atomic_load_explicit(&vdyn_r, memory_order_relaxed);
+    uint64_t w = atomic_load_explicit(&vdyn_w, memory_order_acquire);
+    uint64_t done = vk_completed_seq();
+    uint64_t frame = renderer_present_count();
+    bool loading = framepace_loading_ui();
+    for (uint64_t i = r; i < w && vdyn_chk[i % VDYN_N].seq <= seq; i++) {
+        __typeof__(vdyn_chk[0]) *c = &vdyn_chk[i % VDYN_N];
+        vdyn_check_one(c, frame, loading);
+        if (c->seq <= done && i == r) r++;
+    }
+    atomic_store_explicit(&vdyn_r, r, memory_order_release);
+    pthread_mutex_unlock(&vdyn_lock);
+}
+
+// (renderer_wait_seq, right after completion or a real wait on submission seq) the samples recorded up to it, hashed again
 static void vdyn_check(uint64_t seq) {
     if (vdyn_mode != 1 || pthread_mutex_trylock(&vdyn_lock)) return;
-    uint64_t r = atomic_load_explicit(&vdyn_r, memory_order_relaxed), w = atomic_load_explicit(&vdyn_w, memory_order_acquire);
-    for (; r < w && vdyn_chk[r % VDYN_N].seq <= seq; r++) {
-        __typeof__(vdyn_chk[0]) *c = &vdyn_chk[r % VDYN_N];
-        if (hash_words(0x9E3779B97F4A7C15ull, (const void *)(uintptr_t)c->addr, c->size & ~3ull) == c->hash) continue;
-        uint64_t reg = (c->addr - HEAP_BASE) >> VDYN_SHIFT, frame = renderer_present_count();
-        if (framepace_loading_ui() || frame == vdyn_last[reg]) continue;
-        vdyn_hits[reg] = frame - vdyn_last[reg] <= 60 && vdyn_hits[reg] < 255 ? vdyn_hits[reg] + 1 : 1;
-        vdyn_last[reg] = frame;
-        if (vdyn_hits[reg] < VDYN_HITS) continue;
-        if (atomic_exchange_explicit(&vdyn[reg], 1, memory_order_relaxed)) continue;
-        int n = atomic_fetch_add_explicit(&vdyn_marked, 1, memory_order_relaxed);
-        if (n < 32) LOG("[vk] vertex data rewritten while read at %llx (%llu bytes): the %u KB around it copied from now on\n",
-                        (unsigned long long)c->addr, (unsigned long long)c->size, 1u << (VDYN_SHIFT - 10));
-    }
+    uint64_t r = atomic_load_explicit(&vdyn_r, memory_order_relaxed);
+    uint64_t w = atomic_load_explicit(&vdyn_w, memory_order_acquire);
+    uint64_t frame = renderer_present_count();
+    bool loading = framepace_loading_ui();
+    for (; r < w && vdyn_chk[r % VDYN_N].seq <= seq; r++)
+        vdyn_check_one(&vdyn_chk[r % VDYN_N], frame, loading);
     atomic_store_explicit(&vdyn_r, r, memory_order_release);
     pthread_mutex_unlock(&vdyn_lock);
 }
@@ -6773,20 +6862,26 @@ static void race_probe_submit(uint64_t seq) {
 
 static void vdyn_reset(void) {  // (vk_exec_reset, the GPU idle: another boot, other buffers)
     pthread_mutex_lock(&vdyn_lock);
-    for (size_t i = 0; i < sizeof vdyn; i++) atomic_store_explicit(&vdyn[i], 0, memory_order_relaxed);
+    for (size_t i = 0; i < sizeof vdyn / sizeof vdyn[0]; i++) atomic_store_explicit(&vdyn[i], 0, memory_order_relaxed);
     memset(vdyn_hits, 0, sizeof vdyn_hits);
     memset(vdyn_last, 0, sizeof vdyn_last);
+    memset(vdyn_hits_mid, 0, sizeof vdyn_hits_mid);
+    memset(vdyn_last_mid, 0, sizeof vdyn_last_mid);
+    memset(vdyn_seen, 0, sizeof vdyn_seen);
     atomic_store(&vdyn_marked, 0);
-    atomic_store(&vdyn_r, atomic_load(&vdyn_w));
+    vdyn_log_n = 0;
+    vdyn_tick = 0;
+    vdyn_s = atomic_load(&vdyn_w);
+    atomic_store(&vdyn_r, vdyn_s);
     pthread_mutex_unlock(&vdyn_lock);
 }
 
 // A vertex or index fetch: from the copy if it holds [addr, addr + size) as it is now - within one live chunk - else
 // in place from the import (guest_direct), its pages then geometry for the next list's copy (and its chunk wanted).
 // While a storing shader whose stores aren't known holds the list (chunk_hold), in place.
-static bool guest_fetch(uint64_t addr, uint64_t size, VkBuffer *buf, VkDeviceSize *off) {
+static bool guest_fetch_at(uint64_t addr, uint64_t size, uint64_t sample_off, VkBuffer *buf, VkDeviceSize *off) {
     if (gsnap_verts() && size && size <= gsnap_verts_max() && !gw_overlaps(addr, addr + size)) return false;  // (copied)
-    if (!vdyn_fetch(addr, size)) return false;  // (copied)
+    if (!vdyn_fetch_at(addr, size, sample_off)) return false;  // (copied)
     if (!guest_direct(addr, size, buf, off)) return false;
     if (!hc_nch) return true;
     if (chunk_hold || !size || addr + size > HEAP_BASE + hc_size || gw_overlaps(addr, addr + size)) {
@@ -6824,6 +6919,10 @@ static bool guest_fetch(uint64_t addr, uint64_t size, VkBuffer *buf, VkDeviceSiz
     *buf = ch->buf;
     *off = o - hc_base(c);
     return true;
+}
+
+static bool guest_fetch(uint64_t addr, uint64_t size, VkBuffer *buf, VkDeviceSize *off) {
+    return guest_fetch_at(addr, size, 0, buf, off);
 }
 
 static struct CsEnt { uint64_t addr; void *cp; } *g_cs_tab;  // (compute program table: compute_program)
@@ -9155,7 +9254,7 @@ have_pipe:
     ProfZone pz7 = PZ_NOW();
     uint64_t prof_index_start = prof_t2_;
     // ---- indices (copied; the largest index bounds the vertex data copied below)
-    uint32_t first = 0, count = (uint32_t)r->x[2], inst, base_inst, max_index = 0;
+    uint32_t first = 0, first_idx = 0, count = (uint32_t)r->x[2], inst, base_inst, max_index = 0;
     int32_t base_vertex = 0;
     VkSpan ib = {0};
     VkIndexType itype_vk = VK_INDEX_TYPE_UINT32;
@@ -9178,6 +9277,12 @@ have_pipe:
         base_inst = (uint32_t)r->x[5];
         inst = (uint32_t)r->x[6] ? (uint32_t)r->x[6] : 1;
         const void *src = (const void *)(uintptr_t)iaddr;
+        uint64_t isz_peek = itype == 1 ? 2 : itype == 2 ? 4 : 1;
+        if (count && src && iaddr >= GUEST_LO && iaddr <= GUEST_HI - isz_peek) {
+            if (itype == 1) { uint16_t v16; memcpy(&v16, src, 2); first_idx = v16; }
+            else if (itype == 2) { uint32_t v32; memcpy(&v32, src, 4); first_idx = v32; }
+            else first_idx = *(const uint8_t *)src;
+        }
         uint32_t restart = st.prim_restart ? st.restart_index : 0xFFFFFFFFu;
         if (native && itype != 0) {
             uint32_t isz = itype == 1 ? 2 : 4;
@@ -9234,7 +9339,18 @@ have_pipe:
             Range v = st.vbuf[s];
             VkBuffer dbuf;
             VkDeviceSize doff;
-            if (v.addr && v.size && guest_fetch(v.addr, v.size, &dbuf, &doff)) {
+            uint64_t sample_off = 0, sstride = pipe_memo.k.s.stride[s];
+            if (sstride) {
+                if (pipe_memo.k.s.divisor[s]) {
+                    sample_off = ((uint64_t)base_inst / pipe_memo.k.s.divisor[s]) * sstride;
+                } else if (!indexed) {
+                    sample_off = (uint64_t)first * sstride;
+                } else {
+                    int64_t v0 = (int64_t)base_vertex + (int64_t)first_idx;
+                    if (v0 > 0) sample_off = (uint64_t)v0 * sstride;
+                }
+            }
+            if (v.addr && v.size && guest_fetch_at(v.addr, v.size, sample_off, &dbuf, &doff)) {
                 if (profd) prof_vertex_direct++;
                 race_probe_note(v.addr, v.size, false);
                 if (dc.vbuf[s] != dbuf || dc.voff[s] != doff) {
