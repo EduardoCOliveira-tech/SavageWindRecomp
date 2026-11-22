@@ -1126,3 +1126,5 @@ T("Reset save folder to default", "Torna alla cartella dei salvataggi predefinit
 T("Revert to using the default save folder inside the game folder.", "Torna a usare la cartella dei salvataggi predefinita, dentro la cartella del gioco.")
 T("Lowers the 3D resolution when a frame takes long, as on the console.", "Abbassa la risoluzione 3D quando un fotogramma richiede tempo, come su console.")
 T("As on the console: the game lowers its 3D resolution (down to 1280x720 before upscaling) while frames take long, and raises it again after. Off: always the full resolution. On with the Potato preset.", "Come su console: il gioco abbassa la sua risoluzione 3D (fino a 1280x720 prima dell'upscaling) finché i fotogrammi richiedono tempo, poi la rialza. Disattivata: sempre la risoluzione piena. Attiva con il preset Potato.")
+T("Transparent control guides", "Guide di controllo trasparenti")
+T("Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.", "Rimuove la piastra di sfondo scura dietro le guide e i comandi, lasciando solo pulsanti e testo. Si applica dopo il riavvio.")

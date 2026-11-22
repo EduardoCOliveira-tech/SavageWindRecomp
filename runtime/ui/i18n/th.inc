@@ -1126,3 +1126,5 @@ T("Reset save folder to default", "รีเซ็ตโฟลเดอร์เ
 T("Revert to using the default save folder inside the game folder.", "กลับไปใช้โฟลเดอร์เซฟเริ่มต้นภายในโฟลเดอร์เกม")
 T("Lowers the 3D resolution when a frame takes long, as on the console.", "ลดความละเอียด 3D เมื่อเฟรมใช้เวลานาน เหมือนบนคอนโซล")
 T("As on the console: the game lowers its 3D resolution (down to 1280x720 before upscaling) while frames take long, and raises it again after. Off: always the full resolution. On with the Potato preset.", "เหมือนบนคอนโซล: เกมจะลดความละเอียด 3D (ต่ำสุด 1280x720 ก่อนการขยายภาพ) ขณะที่เฟรมใช้เวลานาน แล้วเพิ่มกลับในภายหลัง ปิด: ใช้ความละเอียดเต็มเสมอ เปิดเมื่อใช้พรีเซ็ต Potato")
+T("Transparent control guides", "คู่มือปุ่มควบคุมแบบโปร่งใส")
+T("Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.", "ลบแผ่นพื้นหลังสีเข้มด้านหลังคู่มือควบคุมและปุ่มคำสั่ง โดยคงเหลือเฉพาะปุ่มและข้อความ จะมีผลหลังจากเริ่มโปรแกรมใหม่")

@@ -54,7 +54,7 @@ static const Setting settings[] = {
     I(hdr_saturation, 0, 100, NULL), I(hdr_highlight_saturation, 0, 100, NULL), I(hdr_flare, 0, 100, NULL),
     I(hdr_gamma, 0, 2, "none|2.2|bt1886"),
     I(hdr_ui_nits, 0, 1000, NULL),
-    I(fov, 50, 200, NULL), I(hud_size, 0, 150, NULL), I(menu_speed, 70, 300, NULL), B(bloom), B(depth_of_field),
+    I(fov, 50, 200, NULL), I(hud_size, 0, 150, NULL), B(transparent_guides), I(menu_speed, 70, 300, NULL), B(bloom), B(depth_of_field),
     B(dynamic_res), B(fast_fma),I(color_exposure, -20, 20, NULL), I(color_contrast, -50, 50, NULL),
     I(color_saturation, -100, 100, NULL), I(color_temperature, -100, 100, NULL),
     I(color_tint, -100, 100, NULL),
@@ -249,7 +249,8 @@ static void cmd_set(int argc, char **argv, ControlReply *r) {
     if (is(s, "fullscreen")) menu_request_window_apply();
     // Do not call settings_save(): file I/O on the presenting thread would block. A menu save may persist these.
     emit(s, r);
-    control_field_str(r, "applied", text || voice || is(s, "precompile_shaders") ? "needs_restart" : "live");
+    control_field_str(r, "applied",
+                      text || voice || is(s, "precompile_shaders") || is(s, "transparent_guides") ? "needs_restart" : "live");
 }
 void control_settings_init(void) {
     static const ControlCmd get[] = {

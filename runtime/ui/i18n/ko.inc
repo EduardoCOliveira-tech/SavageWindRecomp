@@ -1126,3 +1126,5 @@ T("Reset save folder to default", "저장 폴더를 기본값으로 되돌리기
 T("Revert to using the default save folder inside the game folder.", "게임 폴더 안의 기본 저장 폴더를 다시 사용합니다.")
 T("Lowers the 3D resolution when a frame takes long, as on the console.", "콘솔처럼 프레임이 오래 걸리면 3D 해상도를 낮춥니다.")
 T("As on the console: the game lowers its 3D resolution (down to 1280x720 before upscaling) while frames take long, and raises it again after. Off: always the full resolution. On with the Potato preset.", "콘솔처럼 프레임이 오래 걸리는 동안 게임이 3D 해상도를 낮추고(업스케일 전 최저 1280x720) 이후 다시 올립니다. 끄면 항상 전체 해상도입니다. Potato 프리셋에서 켜집니다.")
+T("Transparent control guides", "조작 가이드 투명화")
+T("Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.", "조작 가이드와 버튼 안내 뒤의 어두운 배경 판을 제거하고 버튼과 텍스트만 표시합니다. 재시작 후 적용됩니다.")

@@ -570,6 +570,157 @@ void glyphs_hud_positions(int pos[4]) {
     memcpy(pos, k_presets[0], 4 * sizeof(int));
 }
 
+static int g_boot_hud_pos[4] = {-1, -1, -1, -1};
+static bool g_boot_hud_guides;
+static bool g_boot_hud_valid;
+
+RT_ON_RESET(glyphs_hud_boot_reset) {
+    for (int i = 0; i < 4; i++) g_boot_hud_pos[i] = -1;
+    g_boot_hud_guides = false;
+    g_boot_hud_valid = false;
+}
+
+void glyphs_hud_note_boot(const int pos[4], bool transparent_guides) {
+    if (!pos) return;
+    memcpy(g_boot_hud_pos, pos, sizeof g_boot_hud_pos);
+    g_boot_hud_guides = transparent_guides;
+    g_boot_hud_valid = true;
+}
+
+bool glyphs_hud_restart_needed(void) {
+    if (!g_boot_hud_valid) return false;
+    int cur[4];
+    glyphs_hud_positions(cur);
+    return memcmp(cur, g_boot_hud_pos, sizeof cur) != 0 ||
+           g_settings.transparent_guides != g_boot_hud_guides;
+}
+
+#define HUD_ICON_SCALE 1.5f
+
+// One layout (FLYT, little-endian, a single font), patched into out (room for n + 64 bytes); returns its size or 0.
+size_t glyphs_patch_hud_flyt(const uint8_t *b, size_t n, uint8_t *out, int which, const int pos[4],
+                             bool transparent_guides, int *panes) {
+    static const char icon_font[] = "External_00.bffnt";
+    static const float k_act_xy[4][2] = {{26.0f, 0.0f}, {0.0f, -26.0f}, {0.0f, 26.0f}, {-26.0f, 0.0f}};
+    static const float k_dim_xy[4][2] = {{26.2f, 0.8f}, {1.0f, -26.0f}, {0.8f, 26.0f}, {-25.5f, -0.2f}};
+    if (n < 0x14 || memcmp(b, "FLYT", 4) || b[4] != 0xFF || b[5] != 0xFE) return 0;
+    size_t hs = b[6] | b[7] << 8, o = hs, w = hs;
+    if (hs > n) return 0;
+    memcpy(out, b, hs);
+    bool fonts = false, seen_capture = false;
+    bool reorder = pos && (pos[0] != 0 || pos[1] != 1 || pos[2] != 2 || pos[3] != 3);
+    int act = reorder && which >= 0 && which < 4 ? pos[which] : which;
+    bool west = act == 3;
+    while (o + 8 <= n) {
+        uint32_t sz;
+        memcpy(&sz, b + o + 4, 4);
+        if (sz < 8 || o + sz > n) return 0;
+        uint8_t *sec = out + w;
+        if (!memcmp(b + o, "fnl1", 4)) {
+            uint32_t first;
+            memcpy(&first, b + o + 12, 4);
+            if ((b[o + 8] | b[o + 9] << 8) != 1 || 12 + first >= sz) return 0;
+            const char *name0 = (const char *)b + o + 12 + first;
+            size_t l0 = strnlen(name0, sz - 12 - first) + 1, l1 = sizeof icon_font;
+            uint32_t total = (uint32_t)((12 + 8 + l0 + l1 + 3) & ~3u), off0 = 8, off1 = (uint32_t)(8 + l0);
+            memset(sec, 0, total);
+            memcpy(sec, "fnl1", 4);
+            memcpy(sec + 4, &total, 4);
+            sec[8] = 2;
+            memcpy(sec + 12, &off0, 4);
+            memcpy(sec + 16, &off1, 4);
+            memcpy(sec + 20, name0, l0);
+            memcpy(sec + 20 + l0, icon_font, l1);
+            w += total;
+            o += sz;
+            fonts = true;
+            continue;
+        }
+        memcpy(sec, b + o, sz);
+        if (transparent_guides && sz >= 0x24 &&
+            (!memcmp(sec, "pic1", 4) || !memcmp(sec, "wnd1", 4))) {
+            const char *pname = (const char *)sec + 12;
+            if (!strncmp(pname, "W_Base", 6) || !strncmp(pname, "P_Base", 6) ||
+                !strncmp(pname, "P_Capture", 9) || !strncmp(pname, "P_Bg", 4) ||
+                !strncmp(pname, "P_Black", 7) || !strncmp(pname, "W_Bg", 4)) {
+                sec[0x0A] = 0;
+            }
+        }
+        if (reorder && !memcmp(sec, "txl1", 4)) {
+            for (uint32_t j = 12; j + 18 <= sz; j++)
+                if (!memcmp(sec + j, "Nt_KeyBtnSubBase", 16))
+                    sec[j + 16] = (act == 0 || act == 3) ? 'A' : 'B';
+        }
+        if (!memcmp(sec, "txt1", 4) && sz >= 0x78) {
+            uint32_t toff;
+            memcpy(&toff, sec + 0x64, 4);
+            if (toff && toff + 4 <= sz && !sec[toff + 1] && !sec[toff + 2] && !sec[toff + 3]) {
+                const char *k = strchr("ABXY", sec[toff]);
+                if (k && *k) {
+                    int btn = (int)(k - "ABXY");
+                    sec[0x5A] = 1, sec[0x5B] = 0;  // (the font: the second)
+                    uint16_t c = (uint16_t)(0xE040 + btn);
+                    memcpy(sec + toff, &c, 2);
+                    float fs[2];  // the font size: an icon fills less of its cell than a letter
+                    memcpy(fs, sec + 0x70, 8);
+                    // (a letter is taller than wide, 20.4 x 25.5, but the icons of External_00.bffnt are square: both sizes
+                    // are the height's, or the three inactive buttons came out as ovals, #476)
+                    fs[1] *= HUD_ICON_SCALE, fs[0] = fs[1];
+                    memcpy(sec + 0x70, fs, 8);
+                    if (reorder && pos[btn] >= 0 && pos[btn] < 4)
+                        memcpy(sec + 44, k_dim_xy[pos[btn]], 8);
+                    if (panes) (*panes)++;
+                }
+            }
+        }
+        if (reorder && sz >= 84 &&
+            (!memcmp(sec, "pan1", 4) || !memcmp(sec, "pic1", 4) || !memcmp(sec, "wnd1", 4) || !memcmp(sec, "txt1", 4))) {
+            char name[25] = {0};
+            memcpy(name, sec + 12, 24);
+            if (!strncmp(name, "P_Base", 6)) {
+                float rz = (act == 2 || act == 3) ? 180.0f : 0.0f, sx = act == 2 ? -1.0f : 1.0f;
+                memcpy(sec + 64, &rz, 4);
+                memcpy(sec + 68, &sx, 4);
+            } else if (!strncmp(name, "N_Btn", 5)) {
+                memcpy(sec + 44, k_act_xy[act], 8);
+            } else if (!strncmp(name, "W_Base", 6)) {
+                float wx = west ? 33.0f : -33.0f, wsx = west ? -1.0f : 1.0f;
+                memcpy(sec + 44, &wx, 4);
+                memcpy(sec + 68, &wsx, 4);
+            } else if (!strncmp(name, "T_Guide", 7) && sz >= 96) {
+                if (strstr(name, "_01")) {
+                    float gx = west ? -23.0f : 21.0f;
+                    sec[40] = west ? 2 : 1, sec[93] = west ? 2 : 1;
+                    memcpy(sec + 44, &gx, 4);
+                } else if (strstr(name, "_00")) {
+                    float gx[2] = {west ? 37.0f : -39.0f, 0.0f};
+                    sec[40] = west ? 2 : 1, sec[93] = west ? 2 : 1;
+                    memcpy(sec + 44, gx, 8);
+                }
+            } else if (!strncmp(name, "Nt_KeyTex", 9) && strstr(name, "_01")) {
+                float kx[2] = {west ? 60.0f : -60.0f, 0.0f};
+                memcpy(sec + 44, kx, 8);
+            } else if (!strncmp(name, "N_Capture", 9)) {
+                float cx[2] = {k_act_xy[act][0] + (west ? -60.0f : 60.0f), k_act_xy[act][1]};
+                memcpy(sec + 44, cx, 8);
+                seen_capture = true;
+            } else if (!strncmp(name, "P_CaptureUse", 12)) {
+                float px[2] = {
+                    (seen_capture ? k_act_xy[act][0] : 0.0f) + (west ? -60.0f : 60.0f),
+                    seen_capture ? k_act_xy[act][1] : 0.0f,
+                };
+                memcpy(sec + 44, px, 8);
+            }
+        }
+        w += sz;
+        o += sz;
+    }
+    if (!fonts || w > n + 64) return 0;
+    uint32_t total = (uint32_t)w;
+    memcpy(out + 0xC, &total, 4);
+    return w;
+}
+
 // cursor: with the state of the menus' mouse pointer, which changes some keyboard icons while a menu is open.
 static uint32_t generation(bool cursor) {
     int k = resolve_kind();

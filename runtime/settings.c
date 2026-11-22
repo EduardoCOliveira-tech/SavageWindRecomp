@@ -91,6 +91,7 @@ Settings g_settings = {
     .hdr_clip_nits = 0,    // (legacy: the final cap is hdr_peak_nits)
     .fov = 100,
     .hud_size = 100,
+    .transparent_guides = false,
     .menu_speed = 100,
     .color_lut_strength = 100,
     .haze = 100,
@@ -581,6 +582,7 @@ void settings_load(void) {
         }
         else if (!strcmp(key, "field_of_view")) g_settings.fov = atoi(val);  // (percent)
         else if (!strcmp(key, "hud_size")) g_settings.hud_size = atoi(val);  // (percent)
+        else if (!strcmp(key, "transparent_guides")) g_settings.transparent_guides = atoi(val) != 0;
         else if (!strcmp(key, "menu_speed")) g_settings.menu_speed = atoi(val);  // (percent)
         else if (!strcmp(key, "handheld_setup")) g_settings.handheld_setup = atoi(val) != 0;
         else if (!strcmp(key, "draw_distance")) {
@@ -855,6 +857,7 @@ void settings_save(void) {
     }
     fprintf(f, "field_of_view = %d\n", g_settings.fov);
     fprintf(f, "hud_size = %d\n", g_settings.hud_size);
+    fprintf(f, "transparent_guides = %d\n", g_settings.transparent_guides ? 1 : 0);
     fprintf(f, "menu_speed = %d\n", g_settings.menu_speed);
     if (g_settings.handheld_setup) fprintf(f, "handheld_setup = 1\n");
     int dd = g_settings.draw_distance;

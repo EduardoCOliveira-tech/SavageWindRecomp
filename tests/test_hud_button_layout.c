@@ -4,29 +4,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
-#define main unused_fs_main
-#include "../runtime/settings.c"
-#include "../runtime/hle/bindings.c"
-#include "../runtime/nvn/glyphs.c"
-#include "../runtime/hle.h"
-#include "../runtime/ipc.h"
-#include "../runtime/language.h"
-#include "../runtime/platform.h"
-#include "../runtime/perfcount.h"
-#undef SERVICE
-#define SERVICE(name, fn) static void fn(Service *s, IpcReq *req, IpcResp *resp)
-#undef RT_ON_RESET
-#define RT_ON_RESET(fn) static void fn(void)
-#include "../runtime/services/fs.c"
-#undef main
+#include <SDL3/SDL.h>
+
+#include "game_sites.h"
+#include "hle.h"
+#include "input_bind.h"
+#include "language.h"
+#include "nvn/glyphs.h"
+#include "settings.h"
 
 const TextLanguage g_text_languages[] = {{"Auto", NULL, NULL}};
 const VoiceLanguage g_voice_languages[] = {{"Auto", NULL}};
 const int g_ntext_languages = 1, g_nvoice_languages = 1;
 GameSites g_site;
-uint64_t g_program_id;
-const char *g_romfs_dir;
 bool rt_resource(const char *name, const char *dev_rel, char *out, size_t n) {
     (void)name, (void)dev_rel, (void)out, (void)n;
     return false;
@@ -37,26 +29,6 @@ bool pc_cursor_preview_active(void) { return false; }
 bool pc_cursor_sensor_active(void) { return false; }
 bool fsr3_upscaler_enabled(void) { return false; }
 float winsize_refresh_rate(void) { return 0; }
-void menu_tex_add(const uint8_t *b, uint64_t n) { (void)b, (void)n; }
-int menu_tex_count(void) { return 0; }
-void text_sheet_add(const uint8_t *b, uint64_t n) { (void)b, (void)n; }
-int text_sheet_count(void) { return 0; }
-uint8_t *yaz0_unpack(const uint8_t *z, size_t zn, size_t *out_n) { (void)z, (void)zn, (void)out_n; return NULL; }
-int sarc_find(const uint8_t *arc, size_t an, const char *name, uint32_t *doff, uint32_t *s, uint32_t *e) {
-    (void)arc, (void)an, (void)name, (void)doff, (void)s, (void)e;
-    return -1;
-}
-ssize_t romfs_image_pread(RomfsImage *img, void *buf, size_t n, uint64_t off) {
-    (void)img, (void)buf, (void)n, (void)off;
-    return -1;
-}
-RomfsImage *romfs_image_open(const char *dir, char *why, size_t why_size) {
-    (void)dir, (void)why, (void)why_size;
-    return NULL;
-}
-uint64_t plat_now_ns(void) { return 0; }
-void kernel_watch_write(const char *what, uint64_t addr, uint64_t size) { (void)what, (void)addr, (void)size; }
-const char *rt_version(void) { return "0.0"; }
 
 static size_t append_sec(uint8_t *b, size_t o, const char tag[4], const void *body, uint32_t body_sz) {
     uint32_t sz = 8 + body_sz;
@@ -135,6 +107,37 @@ static size_t build_synthetic_padocommand(uint8_t *b, int which) {
     return o;
 }
 
+static size_t build_synthetic_transparent_guides_flyt(uint8_t *b) {
+    memset(b, 0, 2048);
+    memcpy(b, "FLYT\xFF\xFE\x14\x00\x00\x02\x08\x05", 12);
+    size_t o = 0x14;
+    uint8_t fnl[28] = {0};
+    fnl[0] = 1;
+    uint32_t foff = 8;
+    memcpy(fnl + 4, &foff, 4);
+    strcpy((char *)fnl + 8, "Normal_00.bffnt");
+    o = append_sec(b, o, "fnl1", fnl, sizeof fnl);
+    o = append_pane(b, o, "pan1", "N_Btn", 26.0f, 0.0f, 0.0f, 1.0f);
+    static const struct { const char *tag; const char *name; } panes[] = {
+        {"pic1", "P_Base_00"},
+        {"wnd1", "W_Base_00"},
+        {"pic1", "P_Icon_00"},
+        {"pic1", "P_Capture_00"},
+        {"pic1", "P_Bg_00"},
+        {"pic1", "P_Black_00"},
+        {"wnd1", "W_Bg_00"},
+    };
+    for (size_t i = 0; i < sizeof panes / sizeof panes[0]; i++) {
+        size_t off = o;
+        o = append_pane(b, o, panes[i].tag, panes[i].name, 0.0f, 0.0f, 0.0f, 1.0f);
+        b[off + 0x0A] = 0xFF;
+    }
+    o = append_dim_txt(b, o, "T_A_00", 'A', 26.2f, 0.8f);
+    uint32_t total = (uint32_t)o;
+    memcpy(b + 0xC, &total, 4);
+    return o;
+}
+
 static const uint8_t *find_pane(const uint8_t *b, size_t n, const char *name) {
     size_t o = b[6] | b[7] << 8;
     while (o + 8 <= n) {
@@ -153,6 +156,30 @@ static const uint8_t *find_pane(const uint8_t *b, size_t n, const char *name) {
 static bool nearf(float a, float b) { return fabsf(a - b) < 1e-4f; }
 
 int main(void) {
+    // Legacy savagewind.ini load (with obsolete motion_vectors = objects) + save round-trip
+    const char *tmp = "build/test_hud_button_layout.ini";
+    setenv("SAVAGEWIND_SETTINGS", tmp, 1);
+    {
+        FILE *fp = fopen(tmp, "w");
+        assert(fp != NULL);
+        fprintf(fp, "settings_version = 4\ntransparent_guides = 1\nmotion_vectors = objects\nbutton_layout = gamecube\n");
+        fclose(fp);
+        g_settings.transparent_guides = false;
+        g_settings.button_layout = BUTTON_LAYOUT_AUTO;
+        settings_load();
+        assert(g_settings.transparent_guides == true);
+        assert(g_settings.button_layout == BUTTON_LAYOUT_GAMECUBE);
+        settings_save();
+        fp = fopen(tmp, "r");
+        assert(fp != NULL);
+        char buf[8192] = {0};
+        fread(buf, 1, sizeof buf - 1, fp);
+        fclose(fp);
+        unlink(tmp);
+        assert(strstr(buf, "button_layout = gamecube") != NULL);
+        assert(strstr(buf, "transparent_guides = 1") != NULL);
+    }
+
     bind_reset(BIND_DEV_PAD);
     bind_reset(BIND_DEV_KEY);
 
@@ -197,7 +224,7 @@ int main(void) {
     for (int w = 0; w < 4; w++) {
         uint8_t src[2048], dst[2112];
         size_t sn = build_synthetic_padocommand(src, w);
-        size_t dn = hud_letters_flyt(src, sn, dst, w, pos, &panes);
+        size_t dn = glyphs_patch_hud_flyt(src, sn, dst, w, pos, false, &panes);
         assert(dn > sn);
         const uint8_t *btn = find_pane(dst, dn, "N_BtnA_00");
         const uint8_t *base = find_pane(dst, dn, "P_Base_00");
@@ -220,19 +247,50 @@ int main(void) {
     }
     assert(panes == 12);
 
-    // Settings load/save round-trip for button_layout
-    const char *tmp = "build/test_hud_button_layout.ini";
-    setenv("SAVAGEWIND_SETTINGS", tmp, 1);
-    g_settings.button_layout = BUTTON_LAYOUT_GAMECUBE;
-    settings_save();
-    FILE *fp = fopen(tmp, "r");
-    assert(fp != NULL);
-    char buf[4096] = {0};
-    fread(buf, 1, sizeof buf - 1, fp);
-    fclose(fp);
-    unlink(tmp);
-    assert(strstr(buf, "button_layout = gamecube") != NULL);
+    // Transparent control guides FLYT alpha zeroing
+    {
+        uint8_t src[2048], dst_on[2112], dst_off[2112];
+        size_t sn = build_synthetic_transparent_guides_flyt(src);
+        int def_pos[4] = {0, 1, 2, 3};
+        int p_on = 0, p_off = 0;
 
-    puts("PASS: HUD button layout positions and FLYT patching");
+        size_t dn_on = glyphs_patch_hud_flyt(src, sn, dst_on, 0, def_pos, true, &p_on);
+        assert(dn_on > sn && p_on == 1);
+        assert(find_pane(dst_on, dn_on, "P_Base_00")[0x0A] == 0);
+        assert(find_pane(dst_on, dn_on, "W_Base_00")[0x0A] == 0);
+        assert(find_pane(dst_on, dn_on, "P_Capture_00")[0x0A] == 0);
+        assert(find_pane(dst_on, dn_on, "P_Bg_00")[0x0A] == 0);
+        assert(find_pane(dst_on, dn_on, "P_Black_00")[0x0A] == 0);
+        assert(find_pane(dst_on, dn_on, "W_Bg_00")[0x0A] == 0);
+        assert(find_pane(dst_on, dn_on, "P_Icon_00")[0x0A] == 0xFF);
+
+        size_t dn_off = glyphs_patch_hud_flyt(src, sn, dst_off, 0, def_pos, false, &p_off);
+        assert(dn_off > sn && p_off == 1);
+        assert(find_pane(dst_off, dn_off, "P_Base_00")[0x0A] == 0xFF);
+        assert(find_pane(dst_off, dn_off, "W_Base_00")[0x0A] == 0xFF);
+        assert(find_pane(dst_off, dn_off, "P_Capture_00")[0x0A] == 0xFF);
+        assert(find_pane(dst_off, dn_off, "P_Bg_00")[0x0A] == 0xFF);
+        assert(find_pane(dst_off, dn_off, "P_Black_00")[0x0A] == 0xFF);
+        assert(find_pane(dst_off, dn_off, "W_Bg_00")[0x0A] == 0xFF);
+        assert(find_pane(dst_off, dn_off, "P_Icon_00")[0x0A] == 0xFF);
+    }
+
+    // Boot state tracking for HUD restart detection
+    {
+        g_settings.button_layout = BUTTON_LAYOUT_XBOX;
+        g_settings.transparent_guides = false;
+        glyphs_hud_positions(pos);
+        assert(!glyphs_hud_restart_needed());
+        glyphs_hud_note_boot(pos, false);
+        assert(!glyphs_hud_restart_needed());
+        g_settings.transparent_guides = true;
+        assert(glyphs_hud_restart_needed());
+        g_settings.transparent_guides = false;
+        assert(!glyphs_hud_restart_needed());
+        g_settings.button_layout = BUTTON_LAYOUT_SWAP_AB;
+        assert(glyphs_hud_restart_needed());
+    }
+
+    puts("PASS: HUD button layout, transparent guides, FLYT patching, and settings");
     return 0;
 }

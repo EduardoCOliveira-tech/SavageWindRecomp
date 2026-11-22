@@ -1,6 +1,7 @@
 // Button icons for the device in use (runtime/nvn/glyphs.c): the game's button glyph font sheet, redrawn.
 #pragma once
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 // The texture at addr (format: NVN format, w x h texels) is a button glyph sheet: lin holds its texels as uploaded
@@ -22,6 +23,13 @@ uint32_t glyphs_font_generation(void);
 
 // The diamond vertex (0: East, 1: South, 2: North, 3: West) for each Switch face button (A, B, X, Y) on the HUD.
 void glyphs_hud_positions(int pos[4]);
+void glyphs_hud_note_boot(const int pos[4], bool transparent_guides);
+bool glyphs_hud_restart_needed(void);
+
+// Patches one PaDoCommand{A,B,X,Y}_00 FLYT layout (which 0..3) into out (room for n + 64 bytes):
+// replaces A/B/X/Y prompt letters with icon font glyphs, applies transparent_guides, and moves panes to pos[4].
+size_t glyphs_patch_hud_flyt(const uint8_t *b, size_t n, uint8_t *out, int which, const int pos[4],
+                             bool transparent_guides, int *panes);
 
 // The device the Controls page and the tips draw instead of the Switch (runtime/nvn/hw_illust.c HW_DEVICE_*), -1 for
 // the Switch: Button icons' device, or on Automatic the controller connected. Decided when the game files are opened

@@ -842,6 +842,8 @@ static void tab_display(void) {
                        "How big the hearts, stamina, minimap and the rest of the HUD are. Each part stays in its corner.", false))
             g_settings.hud_size = sizes[cur];
     }
+    opt_toggle("Transparent control guides", &g_settings.transparent_guides, false,
+               "Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.");
     {   // Menu cursor speed
         static const int speeds[] = MENU_SPEED_CHOICES;
         enum { NV = sizeof speeds / sizeof speeds[0] };
@@ -1432,7 +1434,7 @@ static void tab_language(bool in_game) {
     int text = language_text_index();  // (of the languages the game files have: Thai from 1.9.0 on)
     if (opt_choice("Text", &text, tnames, language_text_count(), 0, d1, false)) g_settings.text_language = text;
     opt_choice("Voices", &g_settings.voice_language, vnames, g_nvoice_languages, 0, d2, false);
-    if (in_game && language_pending() &&
+    if (in_game && (language_pending() || glyphs_hud_restart_needed()) &&
         opt_button("Restart now", "Starts the game again with these languages. Progress since your last save is lost.")) {
         settings_save();
         rt_request_reboot(1);  // (RT_REBOOT_GAME: boot again at once)

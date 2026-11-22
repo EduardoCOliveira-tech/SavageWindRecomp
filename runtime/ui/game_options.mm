@@ -35,6 +35,7 @@ extern "C" {
 #include "../input_bind.h"
 #include "../language.h"
 #include "../game_sites.h"
+#include "../nvn/glyphs.h"
 #include "../nvn/output_scale.h"
 #include "../problem_report.h"
 #include "../motion.h"
@@ -957,6 +958,10 @@ void build_items(void) {
                        [](const Item &) { return N(k_text); }, [](const Item &, int x) { return tr(k_text[x]); },
                        [](const Item &) { return g_settings.sharper_menus / 2; },
                        [](const Item &, int x) { g_settings.sharper_menus = x * 2; }, 0));
+    v.push_back(toggle(P_GAMEPLAY, "Transparent control guides",
+                       "Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.",
+                       [](const Item &) { return (int)g_settings.transparent_guides; },
+                       [](const Item &, int x) { g_settings.transparent_guides = x; }, 0));
 
 #ifndef __APPLE__
     // Colour (runtime/color_grade.h; vulkan/exec.c scene_post): the 3D image only, the HUD keeps its colours. The preset
@@ -2213,7 +2218,7 @@ extern "C" int rt_opt_decide(uint64_t row) {
         mark_all_rows(rd64(row));
         return 2;
     case A_RESTART:
-        if (language_pending()) {
+        if (language_pending() || glyphs_hud_restart_needed()) {
             settings_save();
             rt_request_reboot(1);
         }

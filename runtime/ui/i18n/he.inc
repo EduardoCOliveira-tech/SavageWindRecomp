@@ -1125,3 +1125,5 @@ T("Reset save folder to default", "החזר את תיקיית השמירות ל�
 T("Revert to using the default save folder inside the game folder.", "חוזר להשתמש בתיקיית השמירות המוגדרת כברירת מחדל, בתוך תיקיית המשחק.")
 T("Lowers the 3D resolution when a frame takes long, as on the console.", "מורידה את רזולוציית התלת-ממד כשפריים מתארך, כמו בקונסולה.")
 T("As on the console: the game lowers its 3D resolution (down to 1280x720 before upscaling) while frames take long, and raises it again after. Off: always the full resolution. On with the Potato preset.", "כמו בקונסולה: המשחק מוריד את רזולוציית התלת-ממד שלו (עד 1280x720 לפני ההגדלה) כל עוד פריימים מתארכים, ומעלה אותה שוב אחר כך. כבוי: תמיד הרזולוציה המלאה. פועל עם ההגדרה Potato.")
+T("Transparent control guides", "מדריכי מקשים שקופים")
+T("Removes the dark background plate behind control guides and prompts, leaving only buttons and text. Applies after a restart.", "מסיר את לוח הרקע הכהה שמאחורי מדריכי הבקרה וההנחיות, ומשאיר רק כפתורים וטקסט. חל לאחר הפעלה מחדש.")

@@ -904,3 +904,12 @@ $(B)/test_ui_layout: tests/test_ui_layout.c runtime/ui_layout.c runtime/ui_layou
 test-ui-layout: $(B)/test_ui_layout
 	$(B)/test_ui_layout
 .PHONY: test-ui-layout
+
+$(B)/test_hud_button_layout: tests/test_hud_button_layout.c runtime/nvn/glyphs.c runtime/settings.c runtime/hle/bindings.c $(RT_HDRS)
+	@mkdir -p $(dir $@)
+	$(CC) -O1 -ffunction-sections -fdata-sections -DSDL_STATIC_LIB $(OSFLAGS) $(DEPINC) -Iruntime -o $@ $< runtime/nvn/glyphs.c runtime/settings.c runtime/hle/bindings.c -fuse-ld=lld -Wl,--gc-sections $(if $(filter windows,$(PLATFORM)),-Wl$(comma)--exclude-all-symbols) -lSDL3 -lz -lm
+
+test-hud-button-layout: $(B)/test_hud_button_layout
+	$(B)/test_hud_button_layout
+
+.PHONY: test-hud-button-layout
