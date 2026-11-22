@@ -1574,6 +1574,7 @@ static void *audout_thread(void *arg) {
     uint32_t ch = a->channels ? a->channels : 2;
     int dev_frames = a->stream ? audout_dev_frames(a->stream) : 0;
     int prev_mode = g_settings.audio_output;
+    int failed_mode = -1;
     while (!a->quit) {
         pthread_mutex_lock(&a->lock);
         uint64_t size = 0, tag = 0, data = 0;
@@ -1586,7 +1587,8 @@ static void *audout_thread(void *arg) {
             uint32_t want_ch = ch == 6 ? (uint32_t)audio_output_channels(mode) : ch;
             bool mode_changed = mode != prev_mode;
             prev_mode = mode;
-            if (want_ch != a->stream_ch) {
+            if (mode_changed) failed_mode = -1;
+            if (want_ch != a->stream_ch && mode != failed_mode) {
                 SDL_AudioSpec spec = {SDL_AUDIO_S16, (int)want_ch, (int)(a->rate ? a->rate : 48000)};
                 SDL_AudioStream *ns = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
                 if (ns) {
@@ -1598,6 +1600,9 @@ static void *audout_thread(void *arg) {
                     SDL_ResumeAudioStreamDevice(a->stream);
                     audio_3d_reset(&a->mix3d);
                     mode_changed = false;
+                    failed_mode = -1;
+                } else {
+                    failed_mode = mode;
                 }
             }
             if (mode_changed && mode == AUDIO_OUT_HEADPHONES_3D) audio_3d_reset(&a->mix3d);
@@ -1606,15 +1611,16 @@ static void *audout_thread(void *arg) {
             apply_gain(a->stream);
             if (data) {
                 if (ch == 6 && sch == 2) {
+                    int mix_mode = (mode == AUDIO_OUT_HEADPHONES_3D) ? AUDIO_OUT_HEADPHONES_3D : AUDIO_OUT_STEREO;
                     const int16_t *src = (const int16_t *)(uintptr_t)data;
                     int16_t buf[2 * 512];
                     uint64_t rem = frames;
                     while (rem > 0) {
                         uint32_t chunk = rem > 512 ? 512 : (uint32_t)rem;
                         for (uint32_t i = 0; i < chunk; i++) {
-                            float in[6], lr[2];
+                            float in[6], lr[6];
                             for (int k = 0; k < 6; k++) in[k] = src[i * 6 + k] * (1.0f / 32768.0f);
-                            audio_mix_sample(&a->mix3d, in, 6, mode, lr);
+                            audio_mix_sample(&a->mix3d, in, 6, mix_mode, lr);
                             for (int c = 0; c < 2; c++) {
                                 float v = audio_clampf(lr[c], -1.0f, 1.0f);
                                 buf[i * 2 + c] = (int16_t)(v * 32767.0f);
